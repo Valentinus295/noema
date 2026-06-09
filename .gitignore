@@ -1,0 +1,49 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+**/credentials*
+**/secret*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Data + journals (potentially PII / edge-leaking)
+data/cache/
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite-journal
+*.db
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Backtest artifacts
+backtest/results/
+backtest/reports/
+research/notebooks/.ipynb_checkpoints/
+
+# uv
+.uv-cache/

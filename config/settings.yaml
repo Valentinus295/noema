@@ -1,0 +1,141 @@
+# VMPM strategy knobs. Per-symbol overrides live in symbols.yaml.
+# All knobs overridable by env vars prefixed VMPM_ (see core/settings.py).
+# Every change here is git-tracked AND content-hashed; the hash is written to
+# every journal row and backtest artifact (see docs/ARCHITECTURE.md §Versioning).
+
+# ──────────────────────────── RISK ────────────────────────────
+# Tightened per security review: start conservative, loosen only after the
+# Beta-posterior win-rate gate has signed off on >=200 live trades.
+risk:
+  risk_pct_per_trade: 0.25      # was 0.5 — security review §Major
+  max_concurrent_positions: 3
+  max_per_symbol: 1
+  daily_loss_limit_pct: 1.0     # was 2.0 — security review §Major
+  max_spread_pips: 3.0
+  atr_buffer_mult: 1.0
+  # SL primary = ATR(14). GARCH(1,1) is a P1 *regime flag* feeding RiskAgent
+  # throttle only; it does NOT size SL in v1. See docs/ARCHITECTURE.md §SL.
+  sl_method: atr                # atr | garch (garch is P1)
+
+# ─────────────────────────── PORTFOLIO ────────────────────────
+# New block per quality review §Critical (PortfolioAgent missing).
+# These cover what RiskAgent's lone correlation_cap could not.
+portfolio:
+  # Sum of absolute pairwise return correlations across (open + new). Documented.
+  correlation_cap_sum_abs: 1.5
+  # PCA factor exposure caps (computed across whitelist, rolling 60 days)
+  pca_factor_exposure_cap: 0.6  # max share of net risk on any single PC
+  # Hierarchical-cluster cap: at most N concurrent trades per cluster (linkage=ward)
+  cluster_max_concurrent: 1
+  # Currency-strength check: do not enter pair where neither leg is in top/bottom 2
+  currency_strength_topN: 2
+
+# ─────────────────────────── CONFLUENCE ───────────────────────
+confluence:
+  threshold: 0.70
+  llm_review_band: [0.55, 0.70]
+  llm_review_enabled: false     # shadow-mode first; toggle after >=200 setups
+  # Sub-scorers are computed deterministically inside ConfluenceAgent
+  # (RSI / Candlestick / Retest were merged in per quality review §Major).
+  weights:
+    trend: 0.25
+    structure: 0.25
+    retest: 0.15
+    rsi: 0.15
+    candle: 0.10
+    fundamental: 0.10
+
+# ─────────────────────────── INDICATORS ───────────────────────
+indicators:
+  trend_ma_fast: 50
+  trend_ma_slow: 200
+  rsi_period: 14
+  rsi_oversold: 30              # default; per-pair values frozen in symbols.yaml as PRIORS
+  rsi_overbought: 70            # MLE walk-forward tuning is P1, NOT v1 (quality review §Major)
+  atr_period: 14
+  # Order block — pinned ICT-style definition per quality review §Critical.
+  order_block:
+    min_displacement_atr: 1.5   # impulse leg ≥ 1.5×ATR to qualify
+    fvg_min_pips: 2.0           # fair value gap minimum width
+    lookback_bars: 50           # search window for the originating candle
+    invalidation: "close_through"  # close beyond OB invalidates
+
+# ──────────────────────────── SESSIONS ────────────────────────
+# Times in Africa/Nairobi (UTC+3). Internal timestamps remain UTC.
+sessions:
+  active: [london, new_york, london_ny_overlap]
+  sydney: ["00:00", "08:00"]
+  tokyo: ["02:00", "11:00"]
+  london: ["11:00", "19:00"]
+  new_york: ["16:00", "24:00"]
+  london_ny_overlap: ["16:00", "19:00"]
+
+# ───────────────────────────── NEWS ───────────────────────────
+news:
+  blackout_minutes_before: 15
+  blackout_minutes_after: 15
+  impact_min: high              # high | medium | low
+  # Finnhub free tier quota → fail-closed per security review §Major
+  fail_closed_on_quota: true
+  min_corroborating_sources: 2  # require >=2 independent sources for non-zero bias
+
+# ─────────────────────────── CADENCE ──────────────────────────
+cadence:
+  decision_timeframe: M15
+  tick_poll_ms: 500
+  news_poll_seconds: 300
+  llm_max_rpm: 20
+
+# ──────────────────────────── SYMBOLS ─────────────────────────
+symbols:
+  whitelist: [EURUSD, GBPUSD, USDJPY, AUDUSD, XAUUSD]
+
+# ─────────────────────────── GUARDIAN ─────────────────────────
+guardian:
+  # Heartbeat / fail-safe per security review §Critical
+  heartbeat_max_age_seconds: 30   # ExecutionAgent refuses orders if Guardian silent
+  watchdog_enabled: true          # external supervisor flattens on Guardian death
+  # Drawdown EWMA control chart
+  drawdown_ewma_sigma_throttle: 2.0   # halve risk_pct
+  drawdown_ewma_sigma_halt: 3.0       # halt
+  # Live-vs-backtest distribution drift
+  ks_drift_pvalue_halt: 0.01
+  # Beta-posterior win-rate kill-switch (Bayesian gate)
+  # Prior: Beta(α=4.5, β=5.5) → weakly informative, prior mean 0.45, ESS=10
+  # documented per quality review §Major
+  beta_winrate_prior_alpha: 4.5
+  beta_winrate_prior_beta: 5.5
+  beta_winrate_floor: 0.45
+  beta_winrate_halt_posterior_mass_below_floor: 0.95
+  # Sequential edge monitor (SPRT promoted from P1 to P0 per quality review §Major)
+  sprt_enabled: true
+  sprt_h0_expectancy_r: 0.0
+  sprt_h1_expectancy_r: 0.15
+  sprt_alpha: 0.05
+  sprt_beta: 0.20
+
+# ─────────────────────────── BACKTEST ─────────────────────────
+backtest:
+  # Costs explicitly modeled per quality review §Major (slippage + dynamic spread)
+  slippage_atr_mult: 0.05         # entry+exit slippage = 5% of ATR
+  spread_model: session           # session | static
+  spread_session_multipliers:
+    sydney: 1.8
+    tokyo: 1.5
+    london: 1.0
+    new_york: 1.0
+    london_ny_overlap: 0.9
+  # Permutation-test null uses stationary bootstrap (Politis-Romano), NOT naive shuffle
+  permutation_test:
+    method: stationary_bootstrap
+    mean_block_length: 20         # bars; tune via ACF decay
+    n_resamples: 5000
+  walk_forward:
+    train_months: 6
+    test_months: 2
+
+# ─────────────────────────── VERSIONING ───────────────────────
+versioning:
+  # Every journal row and backtest artifact stamps: git_sha, settings_hash, strategy_version
+  strategy_version: "0.1.0"
+  hash_settings_on_load: true

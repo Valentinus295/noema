@@ -1,0 +1,23 @@
+# Per-symbol overrides. Pip values are MT5-resolved at runtime; these are guidance.
+# RSI thresholds default to 30/70 until MLE-tuned per pair (see research/rsi_mle.py).
+
+EURUSD:
+  max_spread_pips: 1.5
+  rsi_oversold: 30
+  rsi_overbought: 70
+GBPUSD:
+  max_spread_pips: 2.0
+  rsi_oversold: 30
+  rsi_overbought: 70
+USDJPY:
+  max_spread_pips: 1.5
+  rsi_oversold: 30
+  rsi_overbought: 70
+AUDUSD:
+  max_spread_pips: 1.8
+  rsi_oversold: 32
+  rsi_overbought: 68
+XAUUSD:
+  max_spread_pips: 30.0   # gold is in price units, not pips
+  rsi_oversold: 25
+  rsi_overbought: 75
