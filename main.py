@@ -1,424 +1,192 @@
-"""VMPM Main Orchestrator — the brain that coordinates all 17 agents.
+"""VMPM Main — Modern Agentic Trading System.
 
-Runs the complete 12-phase trading pipeline:
-1. Fundamental Analysis → 2. Trend → 3. Market Structure → 4. S/R Mapping
-→ 5. Order Blocks → 6. WAIT FOR PRICE → 7. RSI → 8. Candlestick
-→ 9. Validation → 10. Risk Management → 11. Execution → 12. Learning
+Uses the wave-based parallel orchestrator:
+- Layer 1: Data agents (parallel, deterministic)
+- Layer 2: Analysis agents (parallel, deterministic + LLM)
+- Layer 3: Decision agents (sequential LLM debate)
+- Layer 4: Execution (deterministic)
+- Layer 5: Learning (background LLM reflection)
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
+import os
 import signal
 import sys
 from typing import Any
 
 import structlog
 
-from vmpm.core.config import load_config, VMPMConfig
-from vmpm.core.message_bus import MessageBus
-from vmpm.core.state_machine import TradingPipeline, PipelineState
+from vmpm.core.settings import Settings, load_settings
+from vmpm.core.nim_client import NIMClient, ModelTier
+from vmpm.core.orchestrator_modern import ModernOrchestrator
+from vmpm.core.metrics import MetricsCollector
+from vmpm.core.storage import TradeStore, RedisCache
 
-# Agents
+# ── Agent Imports ────────────────────────────────────────────────────
+# Layer 1: Data agents (deterministic)
 from vmpm.agents.macro import MacroEconomicAgent
 from vmpm.agents.currency import CurrencyStrengthAgent
+from vmpm.agents.session import SessionIntelligenceAgent
+
+# Layer 2: Analysis agents (deterministic)
 from vmpm.agents.structure import MarketStructureAgent
 from vmpm.agents.institutional import InstitutionalFootprintAgent
 from vmpm.agents.sr import SupportResistanceAgent
-from vmpm.agents.session import SessionIntelligenceAgent
-from vmpm.agents.opportunity import OpportunitySurveillanceAgent
 from vmpm.agents.momentum import MomentumAgent
 from vmpm.agents.price_action import PriceActionAgent
+
+# Layer 3: Decision agents (LLM-powered)
 from vmpm.agents.thesis import TradeThesisAgent
 from vmpm.agents.devil import DevilsAdvocateAgent
 from vmpm.agents.cio import CIOAgent
+
+# Layer 4: Execution agents (deterministic)
 from vmpm.agents.risk import RiskManagerAgent
 from vmpm.agents.execution import ExecutionAgent
-from vmpm.agents.management import TradeManagementAgent
-from vmpm.agents.performance import PerformanceAnalystAgent
+
+# Layer 5: Learning agents (LLM-powered)
 from vmpm.agents.learning import LearningAgent
 
-# Infrastructure
-from vmpm.data.feed import MarketDataFeed
-from vmpm.data.calendar import EconomicCalendar
+# Broker
 from vmpm.broker.paper import PaperBroker
 from vmpm.broker.mt5 import MT5Broker
-from vmpm.models.knowledge import KnowledgeBase
 
 logger = structlog.get_logger(__name__)
 
 
-class VMPMOrchestrator:
-    """The Valentine Money Printing Machine orchestrator.
+async def create_orchestrator(settings: Settings) -> ModernOrchestrator:
+    """Build and configure the modern orchestrator."""
 
-    Coordinates all 17 agents through the 12-phase trading pipeline.
-    """
+    # ── NIM Client ───────────────────────────────────────────────────
+    api_key = settings.nim.api_key or os.getenv("NIM_API_KEY", "")
+    if not api_key:
+        logger.warning("NIM_API_KEY not set — LLM agents will use fallback logic")
 
-    def __init__(self, config: VMPMConfig | None = None) -> None:
-        self.config = config or load_config()
-        self._running = False
-        self._shutdown_event = asyncio.Event()
+    tier_map = {"fast": ModelTier.FAST, "standard": ModelTier.STANDARD, "heavy": ModelTier.HEAVY}
+    nim = NIMClient(
+        api_key=api_key,
+        base_url=settings.nim.base_url,
+        default_tier=tier_map.get(settings.nim.default_tier, ModelTier.STANDARD),
+        cache_ttl=settings.nim.cache_ttl,
+        cache_enabled=settings.nim.cache_enabled,
+        max_retries=settings.nim.max_retries,
+        rpm_limit=settings.nim.rpm_limit,
+    )
 
-        # Core infrastructure
-        self.bus = MessageBus()
-        self.pipeline = TradingPipeline()
-        self.knowledge = KnowledgeBase()
+    # ── Broker ───────────────────────────────────────────────────────
+    if settings.broker.type == "mt5":
+        broker = MT5Broker(settings)
+    else:
+        broker = PaperBroker(settings)
 
-        # Initialize broker
-        if self.config.broker.type == "mt5":
-            self.broker = MT5Broker(self.config)
-        else:
-            self.broker = PaperBroker(self.config)
+    # ── Storage ──────────────────────────────────────────────────────
+    trade_store = None
+    redis_cache = None
 
-        # Data
-        self.data_feed = MarketDataFeed(self.broker)
-        self.calendar = EconomicCalendar(self.config)
+    if settings.database_url.startswith("postgresql"):
+        trade_store = TradeStore(settings.database_url)
+        await trade_store.initialize()
 
-        # Initialize all 17 agents
-        kwargs = {"config": self.config, "message_bus": self.bus}
-        self.agents = {
-            "macro": MacroEconomicAgent(**kwargs),
-            "currency": CurrencyStrengthAgent(**kwargs),
-            "structure": MarketStructureAgent(**kwargs),
-            "institutional": InstitutionalFootprintAgent(**kwargs),
-            "sr": SupportResistanceAgent(**kwargs),
-            "session": SessionIntelligenceAgent(**kwargs),
-            "opportunity": OpportunitySurveillanceAgent(**kwargs),
-            "momentum": MomentumAgent(**kwargs),
-            "price_action": PriceActionAgent(**kwargs),
-            "thesis": TradeThesisAgent(**kwargs),
-            "devil": DevilsAdvocateAgent(**kwargs),
-            "cio": CIOAgent(**kwargs),
-            "risk": RiskManagerAgent(**kwargs),
-            "execution": ExecutionAgent(**kwargs),
-            "management": TradeManagementAgent(**kwargs),
-            "performance": PerformanceAnalystAgent(**kwargs),
-            "learning": LearningAgent(**kwargs),
-        }
+    redis_url = settings.redis_url or os.getenv("REDIS_URL", "")
+    if redis_url:
+        redis_cache = RedisCache(redis_url)
+        await redis_cache.initialize()
 
-        # Configure logging
-        structlog.configure(
-            processors=[
-                structlog.stdlib.filter_by_level,
-                structlog.stdlib.add_logger_name,
-                structlog.stdlib.add_log_level,
-                structlog.processors.TimeStamper(fmt="iso"),
-                structlog.processors.StackInfoRenderer(),
-                structlog.processors.format_exc_info,
-                structlog.dev.ConsoleRenderer(),
-            ],
-            wrapper_class=structlog.stdlib.BoundLogger,
-            context_class=dict,
-            logger_factory=structlog.PrintLoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
+    # ── Metrics ──────────────────────────────────────────────────────
+    metrics = MetricsCollector(enabled=True)
+    metrics.set_system_info(
+        version="2.0.0",
+        pairs=settings.trading.pairs,
+    )
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+    # ── Orchestrator ─────────────────────────────────────────────────
+    orch = ModernOrchestrator(nim_client=nim, broker=broker, config=settings)
 
-    async def start(self) -> None:
-        """Start the VMPM system."""
-        logger.info("=" * 60)
-        logger.info("  VALENTINE MONEY PRINTING MACHINE (VMPM)")
-        logger.info("  Multi-Agent Trading System v1.0.0")
-        logger.info("=" * 60)
+    # Layer 1: Data agents (deterministic, parallel)
+    orch.register_data_agents([
+        MacroEconomicAgent(config=settings),
+        CurrencyStrengthAgent(config=settings),
+        SessionIntelligenceAgent(config=settings),
+    ])
 
-        # Start infrastructure
-        await self.bus.start()
-        self.broker.initialize()
+    # Layer 2: Analysis agents (deterministic, parallel)
+    orch.register_analysis_agents([
+        MarketStructureAgent(config=settings),
+        InstitutionalFootprintAgent(config=settings),
+        SupportResistanceAgent(config=settings),
+        MomentumAgent(config=settings),
+        PriceActionAgent(config=settings),
+    ])
 
-        # Start all agents
-        for name, agent in self.agents.items():
-            await agent.start()
-            logger.info(f"  ✓ Agent started: {agent.role} ({agent.name})")
+    # Layer 3: Decision agents (LLM, sequential debate)
+    orch.register_decision_agents(
+        thesis=TradeThesisAgent(config=settings, nim_client=nim),
+        devil=DevilsAdvocateAgent(config=settings, nim_client=nim),
+        cio=CIOAgent(config=settings, nim_client=nim),
+    )
 
-        self._running = True
-        logger.info("=" * 60)
-        logger.info("  All 17 agents online. System ready.")
-        logger.info(f"  Broker: {self.config.broker.type.upper()}")
-        logger.info(f"  Pairs: {', '.join(self.config.trading.pairs)}")
-        logger.info("=" * 60)
+    # Layer 4: Execution agents (deterministic, sequential)
+    orch.register_execution_agents(
+        risk=RiskManagerAgent(config=settings),
+        execution=ExecutionAgent(config=settings, broker=broker),
+    )
 
-    async def stop(self) -> None:
-        """Gracefully stop the VMPM system."""
-        logger.info("Shutting down VMPM...")
-        self._running = False
-        self._shutdown_event.set()
+    # Layer 5: Learning agent (LLM, background)
+    orch.register_learning_agent(
+        LearningAgent(config=settings, nim_client=nim)
+    )
 
-        for agent in self.agents.values():
-            await agent.stop()
+    return orch
 
-        self.broker.shutdown()
-        await self.bus.stop()
-        logger.info("VMPM stopped.")
-
-    # ------------------------------------------------------------------
-    # Main Trading Loop
-    # ------------------------------------------------------------------
-
-    async def run(self) -> None:
-        """Main entry point — starts system and runs the trading loop."""
-        await self.start()
-
-        try:
-            while self._running:
-                await self._trading_cycle()
-                await asyncio.sleep(60)  # Check every minute
-        except asyncio.CancelledError:
-            pass
-        finally:
-            await self.stop()
-
-    async def _trading_cycle(self) -> None:
-        """Execute one complete trading cycle across all pairs."""
-        for pair in self.config.trading.pairs:
-            try:
-                await self._analyze_pair(pair)
-            except Exception as exc:
-                logger.error(f"Error analyzing {pair}: {exc}")
-
-    async def _analyze_pair(self, pair: str) -> None:
-        """Run the full 12-phase pipeline for a single pair."""
-        logger.info(f"\n{'─' * 40}")
-        logger.info(f"  Analyzing: {pair}")
-        logger.info(f"{'─' * 40}")
-
-        # Fetch data
-        prices = await self.data_feed.get_multi_tf(
-            pair, ["M15", "H1", "H4", "D1", "W1", "MN1"]
-        )
-        events = await self.calendar.get_events()
-        account = self.broker.get_account_info()
-
-        context: dict[str, Any] = {
-            "pair": pair,
-            "prices": prices,
-            "price_data": prices.get("H1"),
-            "economic_events": events,
-            "account_balance": account.get("balance", 10000),
-            "daily_pnl": self.broker.get_daily_pnl(),
-            "weekly_pnl": self.broker.get_weekly_pnl(),
-            "open_trades": len(self.broker.get_open_positions()),
-            "open_positions": [
-                p.to_dict() for p in self.broker.get_open_positions()
-            ],
-        }
-
-        # Phase 1-6: Analysis Pipeline
-        agent_reports: dict[str, dict] = {}
-
-        # Phase 1: Fundamental Analysis
-        report = await self.agents["macro"].process(context)
-        agent_reports["macro-economic"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["fundamental_scores"] = report.data.get("currency_scores", {})
-        context["fundamental_bias"] = report.signal
-
-        if not self.pipeline.advance(report=None):
-            return
-
-        # Phase 2: Trend Identification (via structure agent)
-        report = await self.agents["structure"].process(context)
-        agent_reports["market-structure"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["trend"] = report.signal
-        if not self.pipeline.advance(report=None):
-            return
-
-        # Phase 3: Support & Resistance
-        report = await self.agents["sr"].process(context)
-        agent_reports["support-resistance"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["buy_zones"] = report.data.get("buy_zones", [])
-        context["sell_zones"] = report.data.get("sell_zones", [])
-
-        # Also run institutional footprint
-        report = await self.agents["institutional"].process(context)
-        agent_reports["institutional-footprint"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["order_blocks"] = report.data.get("order_blocks", [])
-
-        # Session analysis
-        report = await self.agents["session"].process(context)
-        agent_reports["session-intelligence"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Currency strength
-        report = await self.agents["currency"].process(context)
-        agent_reports["currency-strength"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 4: Opportunity Surveillance
-        report = await self.agents["opportunity"].process(context)
-        agent_reports["opportunity-surveillance"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 5: WAITING FOR PRICE — skip in analysis mode, continue to check conditions
-        logger.info("  Waiting for price to reach zone...")
-
-        # Phase 6: RSI Confirmation
-        report = await self.agents["momentum"].process(context)
-        agent_reports["momentum"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 7: Candlestick Confirmation
-        report = await self.agents["price_action"].process(context)
-        agent_reports["price-action"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 8: Trade Thesis
-        direction = "long" if context.get("trend") == "BULLISH" else "short"
-        context["direction"] = direction
-        context["agent_reports"] = agent_reports
-        report = await self.agents["thesis"].process(context)
-        agent_reports["trade-thesis"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Devil's Advocate
-        report = await self.agents["devil"].process(context)
-        agent_reports["devils-advocate"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # CIO Decision
-        context["pipeline_state"] = self.pipeline.state.value
-        report = await self.agents["cio"].process(context)
-        agent_reports["cio"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        decision = report.data.get("decision", "WAIT")
-        logger.info(f"  CIO Decision: {decision}")
-
-        # Phase 9-10: If approved, run risk management
-        if decision in ("BUY", "SELL"):
-            # Calculate SL/TP
-            current_price = float(prices.get("H1", prices.get("H4")).close.iloc[-1]) if prices.get("H1") is not None or prices.get("H4") is not None else 0
-            atr = 0.0010  # Default ATR
-
-            if direction == "long":
-                sl = current_price - 100 * atr
-                tp = current_price + 300 * atr
-            else:
-                sl = current_price + 100 * atr
-                tp = current_price - 300 * atr
-
-            context["current_price"] = current_price
-            context["stop_loss"] = sl
-            context["take_profit"] = tp
-
-            # Risk Manager
-            report = await self.agents["risk"].process(context)
-            agent_reports["risk-manager"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-            if report.data.get("approved"):
-                context["lot_size"] = report.data.get("lot_size", 0.01)
-
-                # Phase 10: Execution
-                context["broker"] = self.broker
-                context["magic_number"] = self.config.broker.magic_number
-                report = await self.agents["execution"].process(context)
-                logger.info(f"  Execution: {report.signal} — {report.reasoning}")
-            else:
-                logger.info(f"  Risk Manager rejected: {report.reasoning}")
-
-        logger.info(f"  Pipeline complete for {pair}")
-
-    # ------------------------------------------------------------------
-    # Single Analysis (for testing)
-    # ------------------------------------------------------------------
-
-    async def analyze_once(self, pair: str) -> dict[str, Any]:
-        """Run analysis once for a single pair and return results."""
-        prices = await self.data_feed.get_multi_tf(
-            pair, ["M15", "H1", "H4", "D1", "W1", "MN1"]
-        )
-        events = await self.calendar.get_events()
-        account = self.broker.get_account_info()
-
-        context: dict[str, Any] = {
-            "pair": pair,
-            "prices": prices,
-            "price_data": prices.get("H1"),
-            "economic_events": events,
-            "account_balance": account.get("balance", 10000),
-            "daily_pnl": 0.0,
-            "weekly_pnl": 0.0,
-            "open_trades": 0,
-        }
-
-        results: dict[str, Any] = {}
-
-        # Run all analysis agents
-        agents_to_run = [
-            "macro", "currency", "structure", "institutional",
-            "sr", "session", "opportunity", "momentum", "price_action",
-        ]
-
-        agent_reports: dict[str, dict] = {}
-        for name in agents_to_run:
-            report = await self.agents[name].process(context)
-            agent_reports[name] = {
-                "signal": report.signal,
-                "confidence": report.confidence,
-                "reasoning": report.reasoning,
-            }
-            results[name] = {
-                "signal": report.signal,
-                "confidence": report.confidence,
-                "reasoning": report.reasoning,
-            }
-
-        # Thesis
-        direction = "long" if agent_reports.get("structure", {}).get("signal") == "BULLISH" else "short"
-        context["direction"] = direction
-        context["agent_reports"] = agent_reports
-
-        report = await self.agents["thesis"].process(context)
-        agent_reports["thesis"] = {"signal": report.signal, "confidence": report.confidence}
-        results["thesis"] = {"signal": report.signal, "confidence": report.confidence, "reasoning": report.reasoning}
-
-        # Devil's Advocate
-        report = await self.agents["devil"].process(context)
-        results["devils_advocate"] = {"signal": report.signal, "confidence": report.confidence, "reasoning": report.reasoning}
-
-        # CIO
-        report = await self.agents["cio"].process(context)
-        results["cio_decision"] = {"signal": report.signal, "confidence": report.confidence, "reasoning": report.reasoning}
-
-        return results
-
-
-# ------------------------------------------------------------------
-# CLI Entry Point
-# ------------------------------------------------------------------
 
 async def main() -> None:
-    """CLI entry point for VMPM."""
+    """VMPM entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="VMPM — Valentine Money Printing Machine")
-    parser.add_argument("--config", type=str, help="Path to config YAML")
-    parser.add_argument("--mode", choices=["run", "analyze", "paper"], default="paper",
-                        help="run=continuous, analyze=single analysis, paper=paper trading")
-    parser.add_argument("--pair", type=str, default="EURUSD", help="Pair to analyze")
+    parser = argparse.ArgumentParser(description="Valentine Money Printing Machine")
+    parser.add_argument("--config", type=str, help="Path to config file")
+    parser.add_argument("--interval", type=float, default=60.0, help="Cycle interval in seconds")
+    parser.add_argument("--dry-run", action="store_true", help="Use paper broker")
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    # Load config
+    settings = load_settings()
+    if args.dry_run:
+        settings.broker.type = "paper"
 
-    # Override to paper mode for safety
-    if args.mode == "paper":
-        config.broker.type = "paper"
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(
+            structlog.stdlib._NAME_TO_LEVEL.get(settings.log_level.lower(), 20)
+        ),
+    )
 
-    orchestrator = VMPMOrchestrator(config)
+    logger.info("vmpm_starting", version="2.0.0", pairs=settings.trading.pairs)
 
-    if args.mode == "analyze":
-        results = await orchestrator.analyze_once(args.pair)
-        print("\n" + "=" * 60)
-        print(f"  VMPM Analysis: {args.pair}")
-        print("=" * 60)
-        for agent, data in results.items():
-            print(f"\n  {agent.upper()}")
-            print(f"    Signal: {data['signal']}")
-            print(f"    Confidence: {data.get('confidence', 0):.0%}")
-            if "reasoning" in data:
-                for line in data["reasoning"].split("\n")[:3]:
-                    print(f"    {line}")
-        print("\n" + "=" * 60)
-    else:
-        # Run continuously
-        loop = asyncio.get_event_loop()
-        for sig_name in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig_name, lambda: asyncio.create_task(orchestrator.stop()))
-        await orchestrator.run()
+    # Create orchestrator
+    orch = await create_orchestrator(settings)
+
+    # Handle shutdown signals
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler(sig, frame):
+        logger.info("shutdown_signal_received", signal=sig)
+        shutdown_event.set()
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
+    # Start orchestrator
+    await orch.start(interval=args.interval)
+
+    # Wait for shutdown
+    await shutdown_event.wait()
+
+    # Graceful shutdown
+    logger.info("vmpm_shutting_down")
+    await orch.stop()
+    logger.info("vmpm_stopped")
 
 
 if __name__ == "__main__":

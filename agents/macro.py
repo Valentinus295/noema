@@ -11,12 +11,12 @@ from typing import Any
 import structlog
 
 from vmpm.analysis.fundamental import FundamentalAnalyzer, EconomicEvent, ImpactLevel
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class MacroEconomicAgent(Agent):
+class MacroEconomicAgent(DeterministicAgent):
     """Agent #2 — Understands the world economy.
 
     Answers: What is happening globally? Are central banks hawkish?

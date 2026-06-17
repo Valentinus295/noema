@@ -1,137 +1,122 @@
-"""Learning Agent — makes the system smarter after every trade.
+"""Learning Agent — LLM-powered post-trade reflection.
 
-Stores market conditions, outcomes, and calculates which setups work best.
+Uses NIM to reflect on trade outcomes and store lessons learned.
+This is where the system gets smarter over time.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import LLMAgent, AgentReport, AgentType
+from vmpm.core.nim_client import NIMClient, ModelTier
+from vmpm.models.schemas import TradeReflection
 
 logger = structlog.get_logger(__name__)
 
+SYSTEM_PROMPT = """You are the Learning Agent for a forex trading system.
 
-class LearningAgent(Agent):
-    """Agent #17 — Makes the system smarter.
+Your job: After a trade concludes (or after a NO_TRADE decision), reflect on what happened and extract lessons for the future.
 
-    After every trade, stores: Market conditions, News conditions,
-    Trend conditions, S/R Zone, RSI state, Candlestick pattern, Outcome.
+You receive:
+- The trade decision that was made
+- All the analysis that led to that decision
+- The outcome (if known)
 
-    Calculates: Which setups work best, which sessions perform best,
-    which order blocks perform best, which confirmations fail most.
+You must:
+1. Identify what worked correctly in the analysis
+2. Identify what was wrong or misleading
+3. Extract a specific, actionable lesson
+4. Classify the pattern type (e.g., "trend_continuation", "reversal", "breakout", "range_trade")
+5. Decide: Should we look for this type of setup again?
+6. List specific adjustments for next time
+
+Rules:
+- Be honest. If the analysis was wrong, say so.
+- Be specific. "Watch for news" is useless. "The trade failed because NFP was 2 hours away and volatility spiked" is useful.
+- Focus on PATTERN RECOGNITION. What pattern did this market situation match?
+- Store insights that will be relevant for FUTURE trades, not just this one.
+- If a trade succeeded for the wrong reasons (lucky), note that too."""
+
+
+class LearningAgent(LLMAgent):
+    """Agent #17 — LLM-powered post-trade reflection.
+
+    Reflects on trade outcomes and stores lessons for future decisions.
+    This is how the system improves over time.
     """
 
     name = "learning"
-    role = "Learning Agent"
-    priority = 0
+    role = "Learning & Reflection"
+    priority = 100  # Runs last, after everything
+    model_tier = ModelTier.FAST  # No rush — background task
+    system_prompt = SYSTEM_PROMPT
+    response_model = TradeReflection
+    temperature = 0.4  # Slightly creative for insight extraction
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.knowledge_file = Path("vmpm_knowledge.json")
-        self.knowledge = self._load_knowledge()
+    def __init__(self, config=None, nim_client: NIMClient | None = None):
+        super().__init__(config=config, nim_client=nim_client)
 
-    async def analyze(self, context: dict[str, Any]) -> AgentReport:
-        """Learn from a completed trade."""
-        trade = context.get("completed_trade", {})
-        if not trade:
+    def _build_user_message(self, context: dict[str, Any]) -> str:
+        """Format trade data for reflection."""
+        decision = context.get("decision", {})
+        analysis = context.get("analysis", {})
+        symbol = context.get("symbol", "UNKNOWN")
+
+        parts = [
+            f"## Post-Trade Reflection: {symbol}",
+            "",
+            "## Decision Made:",
+        ]
+
+        if decision:
+            parts.append(f"  Decision: {decision.get('decision', 'UNKNOWN')}")
+            parts.append(f"  Confidence: {decision.get('confidence', 0):.0%}")
+            parts.append(f"  Consensus: {decision.get('consensus_score', 0):.0%}")
+            parts.append(f"  Reasoning: {decision.get('final_reasoning', 'None')}")
+            parts.append(f"  Thesis Approved: {decision.get('thesis_approved', 'Unknown')}")
+            parts.append(f"  Devil Approved: {decision.get('devil_approved', 'Unknown')}")
+        else:
+            parts.append("  [No decision recorded]")
+
+        parts.append("\n## Analysis That Led to Decision:")
+        for agent_name, data in analysis.items():
+            signal = data.get("signal", "UNKNOWN")
+            parts.append(f"  {agent_name}: {signal}")
+
+        # Check if there's trade outcome data
+        trade_result = context.get("trade_result", {})
+        if trade_result:
+            parts.append("\n## Trade Outcome:")
+            parts.append(f"  Entry: {trade_result.get('entry_price', 'Unknown')}")
+            parts.append(f"  Exit: {trade_result.get('exit_price', 'Unknown')}")
+            parts.append(f"  P&L: {trade_result.get('pnl', 'Unknown')}")
+            parts.append(f"  Duration: {trade_result.get('duration', 'Unknown')}")
+        else:
+            parts.append("\n## Trade Outcome: [Trade still open or NO_TRADE decision]")
+
+        parts.append("\nReflect on this trade. What can we learn?")
+        return "\n".join(parts)
+
+    def _to_report(self, result: Any, llm_latency_ms: float) -> AgentReport:
+        """Convert TradeReflection to AgentReport and store in memory."""
+        if isinstance(result, TradeReflection):
+            # Store reflection in agent memory for future reference
+            self.memory.store_reflection(result.model_dump())
+
             return AgentReport(
                 agent_name=self.name,
-                signal="NEUTRAL",
-                confidence=0.0,
-                reasoning="No completed trade to learn from.",
+                signal="COMPLETE",
+                confidence=1.0,
+                data=result.model_dump(),
+                reasoning=(
+                    f"Lesson: {result.lesson_learned} | "
+                    f"Pattern: {result.pattern_type} | "
+                    f"Should repeat: {result.should_repeat}"
+                ),
+                agent_type=AgentType.LLM,
+                llm_latency_ms=llm_latency_ms,
             )
-
-        # Record the trade with full context
-        record = {
-            "pair": trade.get("pair", ""),
-            "direction": trade.get("direction", ""),
-            "outcome": "win" if trade.get("pnl", 0) > 0 else "loss",
-            "pnl": trade.get("pnl", 0),
-            "session": trade.get("session", "unknown"),
-            "market_regime": trade.get("market_regime", "unknown"),
-            "trend": trade.get("trend", "unknown"),
-            "rsi_at_entry": trade.get("rsi_at_entry", 50),
-            "candlestick_pattern": trade.get("candlestick_pattern", "none"),
-            "order_block_type": trade.get("order_block_type", "none"),
-            "risk_reward": trade.get("risk_reward", 0),
-            "confidence": trade.get("confidence", 0),
-        }
-
-        self.knowledge["trades"].append(record)
-        self._save_knowledge()
-
-        # Analyze patterns
-        insights = self._analyze_patterns()
-
-        return AgentReport(
-            agent_name=self.name,
-            signal="LEARNED",
-            confidence=0.9,
-            data={
-                "recorded": True,
-                "total_trades_learned": len(self.knowledge["trades"]),
-                "insights": insights,
-            },
-            reasoning=f"Trade recorded. Total trades in knowledge base: {len(self.knowledge['trades'])}.\n"
-                      f"Key insight: {insights.get('best_session', 'N/A')} session has highest win rate.",
-        )
-
-    def _analyze_patterns(self) -> dict[str, Any]:
-        """Analyze patterns in trade history."""
-        trades = self.knowledge["trades"]
-        if len(trades) < 5:
-            return {"message": "Need more trades for analysis"}
-
-        # Session performance
-        session_stats: dict[str, dict] = {}
-        for t in trades:
-            s = t.get("session", "unknown")
-            if s not in session_stats:
-                session_stats[s] = {"wins": 0, "total": 0, "pnl": 0}
-            session_stats[s]["total"] += 1
-            session_stats[s]["pnl"] += t.get("pnl", 0)
-            if t.get("outcome") == "win":
-                session_stats[s]["wins"] += 1
-
-        for s in session_stats:
-            session_stats[s]["win_rate"] = session_stats[s]["wins"] / session_stats[s]["total"]
-
-        best_session = max(session_stats, key=lambda x: session_stats[x]["win_rate"]) if session_stats else "N/A"
-
-        # Pattern performance
-        pattern_stats: dict[str, dict] = {}
-        for t in trades:
-            p = t.get("candlestick_pattern", "none")
-            if p not in pattern_stats:
-                pattern_stats[p] = {"wins": 0, "total": 0}
-            pattern_stats[p]["total"] += 1
-            if t.get("outcome") == "win":
-                pattern_stats[p]["wins"] += 1
-
-        return {
-            "best_session": best_session,
-            "session_stats": session_stats,
-            "pattern_stats": pattern_stats,
-            "total_analyzed": len(trades),
-        }
-
-    def _load_knowledge(self) -> dict[str, Any]:
-        """Load knowledge base from disk."""
-        if self.knowledge_file.exists():
-            try:
-                return json.loads(self.knowledge_file.read_text())
-            except Exception:
-                pass
-        return {"trades": [], "insights": {}}
-
-    def _save_knowledge(self) -> None:
-        """Save knowledge base to disk."""
-        try:
-            self.knowledge_file.write_text(json.dumps(self.knowledge, indent=2))
-        except Exception as exc:
-            self._logger.error("knowledge_save_failed", error=str(exc))
+        return super()._to_report(result, llm_latency_ms)

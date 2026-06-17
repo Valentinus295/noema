@@ -13,12 +13,12 @@ import pandas as pd
 import structlog
 
 from vmpm.analysis.technical import TechnicalAnalyzer
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class MomentumAgent(Agent):
+class MomentumAgent(DeterministicAgent):
     """Agent #9 — Measures exhaustion.
 
     Uses: RSI, MACD, Momentum metrics.

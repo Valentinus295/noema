@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +31,7 @@ OVERLAPS = {
 }
 
 
-class SessionIntelligenceAgent(Agent):
+class SessionIntelligenceAgent(DeterministicAgent):
     """Agent #7 — Understands market timing.
 
     Answers: Which session is active? When does volatility increase?

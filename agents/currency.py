@@ -12,12 +12,12 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class CurrencyStrengthAgent(Agent):
+class CurrencyStrengthAgent(DeterministicAgent):
     """Agent #3 — Ranks currencies by relative strength.
 
     Answers: Which currency should we buy? Which should we sell?

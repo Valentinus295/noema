@@ -1,7 +1,13 @@
-"""Base agent class for the VMPM multi-agent system.
+"""Base agent class for VMPM — backward compatible + modern support.
 
-Every agent in the VMPM swarm inherits from this base class.
-Agents communicate via the MessageBus and maintain their own state.
+This file maintains backward compatibility with existing agents while
+supporting the new modern agent pattern (LLM-powered agents with tools).
+
+For new agents, use:
+- DeterministicAgent from core.modern_agent (no LLM, fast)
+- LLMAgent from core.modern_agent (NIM-powered, structured output)
+
+This base class is kept for existing agents that haven't been migrated yet.
 """
 
 from __future__ import annotations
@@ -29,7 +35,10 @@ class AgentState(Enum):
 
 @dataclass
 class AgentReport:
-    """Standardized output from an agent after analysis."""
+    """Standardized output from an agent after analysis.
+
+    Compatible with both old and new agent patterns.
+    """
     agent_name: str
     timestamp: float = field(default_factory=time.time)
     signal: str = "NEUTRAL"          # BULLISH, BEARISH, NEUTRAL
@@ -37,22 +46,28 @@ class AgentReport:
     data: dict[str, Any] = field(default_factory=dict)
     reasoning: str = ""
     report_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    agent_type: str = "deterministic"  # "deterministic" or "llm"
+    llm_latency_ms: float = 0.0
+    cache_hit: bool = False
 
 
 class Agent:
-    """Base class for all VMPM agents.
+    """Base class for all VMPM agents (backward compatible).
 
     Subclasses must implement:
         - name: Unique agent identifier
         - role: Human-readable role description
         - analyze(): Core analysis logic
+
+    For new agents, consider using DeterministicAgent or LLMAgent
+    from core.modern_agent instead.
     """
 
     name: str = "base-agent"
     role: str = "Base Agent"
     priority: int = 0  # Higher = runs first among peers
 
-    def __init__(self, message_bus: Any = None, config: Any = None) -> None:
+    def __init__(self, message_bus: Any = None, config: Any = None, **kwargs) -> None:
         self.state = AgentState.IDLE
         self.message_bus = message_bus
         self.config = config
@@ -60,6 +75,8 @@ class Agent:
         self._report_history: list[AgentReport] = []
         self._subscriptions: list[str] = []
         self._logger = logger.bind(agent=self.name)
+        # Accept NIM client for backward compat (unused by deterministic agents)
+        self.nim = kwargs.get("nim_client")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -109,7 +126,8 @@ class Agent:
             return report
         except Exception as exc:
             self.state = AgentState.ERROR
-            self._logger.error("analysis_failed", error=str(exc))
+            elapsed = time.monotonic() - start
+            self._logger.error("analysis_failed", error=str(exc), elapsed_ms=round(elapsed * 1000, 1))
             return AgentReport(
                 agent_name=self.name,
                 signal="ERROR",

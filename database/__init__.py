@@ -1,4 +1,12 @@
-"""Database engine for VMPM — async SQLAlchemy with SQLite."""
+"""Database engine for VMPM — async SQLAlchemy with SQLite.
+
+STATUS: PREPARED BUT NOT INTEGRATED.
+This module defines the async database engine and models for future use.
+The current system uses models/knowledge.py (JSON file) for persistence.
+
+To integrate: instantiate DatabaseEngine in the orchestrator and use
+TradeRecord/KnowledgeEntry/DailyStats models for persistent storage.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +24,11 @@ class Base(DeclarativeBase):
 
 
 class DatabaseEngine:
-    """Async database engine for trade history and knowledge storage."""
+    """Async database engine for trade history and knowledge storage.
+
+    NOTE: Not currently integrated into the trading pipeline.
+    Prepared for future use when persistent storage is needed.
+    """
 
     def __init__(self, url: str = "sqlite+aiosqlite:///vmpm.db") -> None:
         self.url = url

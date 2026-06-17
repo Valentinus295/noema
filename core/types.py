@@ -1,6 +1,7 @@
 """Shared domain types. Pydantic v2 for cross-agent validation."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
@@ -52,3 +53,14 @@ class Setup(_Base):
     settings_hash: str            # config content hash at decision time
     git_sha: str
     proposed_at_utc: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class Bar:
+    """Single OHLCV bar. Used by indicators and the 7-agent pipeline."""
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float

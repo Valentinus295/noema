@@ -9,12 +9,12 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class ExecutionAgent(Agent):
+class ExecutionAgent(DeterministicAgent):
     """Agent #14 — Trade implementation.
 
     Places orders, modifies orders, moves SL, partial close, close trades.
