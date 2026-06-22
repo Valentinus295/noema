@@ -1,24 +1,37 @@
-"""Database engine for VMPM — async SQLAlchemy with SQLite."""
+"""Database engine for VMPM.
+
+Optional SQLAlchemy with SQLite for legacy models.
+DuckDB journal (database/journal.py) is the primary trade log.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 import structlog
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
 
 logger = structlog.get_logger(__name__)
 
+try:
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+    from sqlalchemy.orm import DeclarativeBase
 
-class Base(DeclarativeBase):
-    pass
+    class Base(DeclarativeBase):
+        pass
+
+    _HAS_SQLALCHEMY = True
+except ImportError:
+    Base = type("Base", (), {})  # type: ignore[misc,assignment]
+    _HAS_SQLALCHEMY = False
+    logger.debug("sqlalchemy_not_available")
 
 
 class DatabaseEngine:
     """Async database engine for trade history and knowledge storage."""
 
     def __init__(self, url: str = "sqlite+aiosqlite:///vmpm.db") -> None:
+        if not _HAS_SQLALCHEMY:
+            raise ImportError("SQLAlchemy is required for DatabaseEngine. Install with: pip install sqlalchemy aiosqlite")
         self.url = url
         self.engine = create_async_engine(url, echo=False)
         self.session_factory = async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)

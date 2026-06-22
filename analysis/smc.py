@@ -93,6 +93,8 @@ class SMCForecaster:
         Bullish OB: Last bearish candle before bullish impulse that breaks structure.
         Bearish OB: Last bullish candle before bearish impulse that breaks structure.
         """
+        if df is None or df.empty or len(df) < lookback + 3:
+            return []
         order_blocks: list[OrderBlock] = []
         highs = df["high"].values
         lows = df["low"].values

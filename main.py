@@ -12,6 +12,7 @@ import asyncio
 import logging
 import signal
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -38,6 +39,9 @@ from vmpm.agents.execution import ExecutionAgent
 from vmpm.agents.management import TradeManagementAgent
 from vmpm.agents.performance import PerformanceAnalystAgent
 from vmpm.agents.learning import LearningAgent
+from vmpm.agents.reflector import ReflectorAgent
+from vmpm.database.journal import TradeJournal
+from vmpm.agents.telegram_bot import TelegramBot
 
 # Infrastructure
 from vmpm.data.feed import MarketDataFeed
@@ -75,6 +79,10 @@ class VMPMOrchestrator:
         self.data_feed = MarketDataFeed(self.broker)
         self.calendar = EconomicCalendar(self.config)
 
+        # Self-learning system (grows with every trade)
+        self.reflector = ReflectorAgent()
+        self.journal = TradeJournal()
+
         # Initialize all 17 agents
         kwargs = {"config": self.config, "message_bus": self.bus}
         self.agents = {
@@ -96,6 +104,9 @@ class VMPMOrchestrator:
             "performance": PerformanceAnalystAgent(**kwargs),
             "learning": LearningAgent(**kwargs),
         }
+
+        # Telegram integration
+        self._telegram = TelegramBot()
 
         # Configure logging
         structlog.configure(
@@ -129,14 +140,32 @@ class VMPMOrchestrator:
         await self.bus.start()
         self.broker.initialize()
 
+        # Load learned knowledge from ReflectorAgent
+        adapted = self.reflector.get_adapted_params()
+        if adapted.get("lessons"):
+            logger.info(f"  🧠 Loaded {len(adapted['lessons'])} lessons from ReflectorAgent")
+
         # Start all agents
         for name, agent in self.agents.items():
             await agent.start()
             logger.info(f"  ✓ Agent started: {agent.role} ({agent.name})")
 
+        # Register Telegram handlers and start bot
+        self._telegram.register_handlers({
+            "status": self._handle_telegram_status,
+            "positions": self._handle_telegram_positions,
+            "flatten": self._handle_telegram_flatten,
+            "halt": self._handle_telegram_halt,
+            "resume": self._handle_telegram_resume,
+            "balance": self._handle_telegram_balance,
+            "lessons": self._handle_telegram_lessons,
+            "learn": self._handle_telegram_learn,
+        })
+        await self._telegram.start()
+
         self._running = True
         logger.info("=" * 60)
-        logger.info("  All 17 agents online. System ready.")
+        logger.info("  All 17 agents + ReflectorAgent + Telegram online. System ready.")
         logger.info(f"  Broker: {self.config.broker.type.upper()}")
         logger.info(f"  Pairs: {', '.join(self.config.trading.pairs)}")
         logger.info("=" * 60)
@@ -147,11 +176,13 @@ class VMPMOrchestrator:
         self._running = False
         self._shutdown_event.set()
 
+        await self._telegram.stop()
         for agent in self.agents.values():
             await agent.stop()
 
         self.broker.shutdown()
         await self.bus.stop()
+        self.journal.close()
         logger.info("VMPM stopped.")
 
     # ------------------------------------------------------------------
@@ -205,6 +236,13 @@ class VMPMOrchestrator:
                 p.to_dict() for p in self.broker.get_open_positions()
             ],
         }
+
+        # Inject ReflectorAgent learned parameters
+        context = self.inject_learned_params(context)
+
+        # Apply learned risk adjustments
+        risk_multiplier = context.get("risk_multiplier", 1.0)
+        min_confidence = context.get("min_confidence", 0.5)
 
         # Phase 1-6: Analysis Pipeline
         agent_reports: dict[str, dict] = {}
@@ -311,6 +349,143 @@ class VMPMOrchestrator:
                 logger.info(f"  Risk Manager rejected: {report.reasoning}")
 
         logger.info(f"  Pipeline complete for {pair}")
+
+        # Phase 12: Self-Learning — ReflectorAgent records trade for learning
+        if decision in ("BUY", "SELL") and report.data.get("ticket"):
+            self._record_trade_for_learning(pair, decision, context, agent_reports)
+
+    # ------------------------------------------------------------------
+    # Telegram Command Handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_telegram_status(self) -> str:
+        account = self.broker.get_account_info()
+        positions = self.broker.get_open_positions()
+        adapted = self.reflector.get_adapted_params()
+        lessons = adapted.get("lessons", [])
+
+        lines = [
+            "📊 VMPM STATUS",
+            f"  Balance: ${account.get('balance', 0):,.2f}",
+            f"  Equity: ${account.get('equity', 0):,.2f}",
+            f"  Open Positions: {len(positions)}",
+            f"  Daily P&L: ${self.broker.get_daily_pnl():,.2f}",
+            f"  Risk Multiplier: {adapted.get('risk_multiplier', 1.0):.2f}",
+            f"  Min Confidence: {adapted.get('min_confidence', 0.5):.0%}",
+            f"  Lessons Loaded: {len(lessons)}",
+            f"  Trading: {'ACTIVE' if self._running else 'STOPPED'}",
+        ]
+        return "\n".join(lines)
+
+    async def _handle_telegram_positions(self) -> str:
+        positions = self.broker.get_open_positions()
+        if not positions:
+            return "No open positions"
+        lines = ["📋 OPEN POSITIONS"]
+        for p in positions:
+            lines.append(
+                f"  {p.type.upper()} {p.volume} {p.symbol} @ {p.open_price:.5f}"
+                f" | P&L: ${p.pnl:.2f}"
+            )
+        return "\n".join(lines)
+
+    async def _handle_telegram_flatten(self) -> str:
+        positions = self.broker.get_open_positions()
+        if not positions:
+            return "No positions to flatten"
+        count = 0
+        for p in positions:
+            if self.broker.close_position(p.ticket):
+                count += 1
+        # Halt trading after flatten to prevent re-opening
+        self._running = False
+        await self._telegram.send_alert(f"🚨 FLATTENED {count}/{len(positions)} positions. Trading HALTED.")
+        return f"Flattened {count} positions. Trading halted — use /resume to restart."
+
+    async def _handle_telegram_halt(self) -> str:
+        self._running = False
+        await self._telegram.send_alert("⏸️ VMPM TRADING HALTED")
+        return "Trading halted. Positions kept open."
+
+    async def _handle_telegram_resume(self) -> str:
+        self._running = True
+        await self._telegram.send_alert("▶️ VMPM TRADING RESUMED")
+        return "Trading resumed."
+
+    async def _handle_telegram_balance(self) -> str:
+        account = self.broker.get_account_info()
+        return (
+            f"💰 Balance: ${account.get('balance', 0):,.2f}\n"
+            f"   Equity: ${account.get('equity', 0):,.2f}\n"
+            f"   Free Margin: ${account.get('free_margin', 0):,.2f}"
+        )
+
+    async def _handle_telegram_lessons(self) -> str:
+        manual = self.reflector.get_operating_manual()
+        return manual[:3000]  # Telegram message limit
+
+    async def _handle_telegram_learn(self) -> str:
+        insights = self.reflector.learn()
+        n_lessons = len(insights.get("lessons", []))
+        bayesian = insights.get("bayesian_edge", {})
+        wr = bayesian.get("posterior_mean", 0)
+        return (
+            f"🧠 Learning cycle complete\n"
+            f"  Active lessons: {n_lessons}\n"
+            f"  Bayesian win rate: {wr:.1%}\n"
+            f"  Trades analyzed: {bayesian.get('total_trades', 0)}"
+        )
+
+    # ------------------------------------------------------------------
+    # Self-Learning Integration
+    # ------------------------------------------------------------------
+
+    def _record_trade_for_learning(
+        self, pair: str, decision: str, context: dict[str, Any],
+        agent_reports: dict[str, dict],
+    ) -> None:
+        """Record executed trade for ReflectorAgent learning."""
+        try:
+            trade_record = {
+                "symbol": pair,
+                "direction": "buy" if decision == "BUY" else "sell",
+                "pnl": 0.0,  # Will be updated when trade closes
+                "session": context.get("session", "unknown"),
+                "market_regime": "unknown",
+                "trend": context.get("trend", "unknown"),
+                "confidence": agent_reports.get("trade-thesis", {}).get("confidence", 0),
+                "confluence_score": sum(
+                    r.get("confidence", 0) for r in agent_reports.values()
+                ) / max(len(agent_reports), 1),
+                "exit_reason": "open",
+                "agent_reports": agent_reports,
+            }
+            self.reflector.record_trade(trade_record)
+
+            # Also journal the trade
+            self.journal.record_trade(
+                ticket=0, symbol=pair, direction="buy" if decision == "BUY" else "sell",
+                entry_price=context.get("current_price", 0), exit_price=0,
+                volume=context.get("lot_size", 0.01),
+                sl=context.get("stop_loss", 0), tp=context.get("take_profit", 0),
+                pnl=0, pnl_pips=0,
+                entry_time=datetime.now(timezone.utc),
+                exit_time=datetime.now(timezone.utc),
+                exit_reason="open", session="unknown",
+                settings_hash=self.journal.compute_config_hash({}),
+                git_sha="", agent_reports=agent_reports,
+            )
+        except Exception as exc:
+            logger.error("trade_recording_failed", error=str(exc))
+
+    def inject_learned_params(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Inject ReflectorAgent's learned parameters into context."""
+        adapted = self.reflector.get_adapted_params()
+        context["learned_params"] = adapted
+        context["min_confidence"] = adapted.get("min_confidence", 0.5)
+        context["risk_multiplier"] = adapted.get("risk_multiplier", 1.0)
+        context["avoided_patterns"] = adapted.get("avoided_patterns", [])
+        return context
 
     # ------------------------------------------------------------------
     # Single Analysis (for testing)

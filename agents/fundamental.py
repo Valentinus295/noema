@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from vmpm.core.types import Bias, Direction
-from vmpm.broker.base import BrokerProtocol
 
 
 @dataclass

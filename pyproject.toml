@@ -8,8 +8,8 @@ readme = "README.md"
 
 dependencies = [
     # MT5 bridge (Linux via Wine). RPyC pinned >=6.0 per security review (RCE history in <5.3).
+    # mt5linux pins rpyc==5.2.3 — accept it for v0.x; upgrade when mt5linux releases
     "mt5linux>=1.0.3",
-    "rpyc>=6.0",
     # Technical analysis (system libta-lib must be installed)
     "TA-Lib>=0.6.0",
     # Data / storage

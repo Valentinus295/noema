@@ -9,7 +9,15 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Any
 
-from vmpm.core.types import Setup, Direction
+from vmpm.core.types import Direction
+
+
+class PortfolioSetup:
+    """Minimal setup stub for portfolio checks from the class-based agent system."""
+    def __init__(self, symbol: str, direction: str, score: float = 0.0) -> None:
+        self.symbol = symbol
+        self.direction = direction
+        self.score = score
 
 
 @dataclass
@@ -34,20 +42,20 @@ def _compute_currency_strength(prices: dict[str, float]) -> dict[str, float]:
     return strengths
 
 
-def _compute_correlation_matrix(setups: list[Setup]) -> np.ndarray:
+def _compute_correlation_matrix(setups: list[PortfolioSetup]) -> np.ndarray:
     if len(setups) < 2:
         return np.array([[1.0]])
 
-    directions = np.array([[1 if s.direction == Direction("bullish") else -1 for s in setups]])
+    directions = np.array([[1 if s.direction == "bullish" else -1 for s in setups]])
     return np.corrcoef(directions)
 
 
-def _compute_pca_factors(setups: list[Setup], n_components: int = 3) -> np.ndarray:
+def _compute_pca_factors(setups: list[PortfolioSetup], n_components: int = 3) -> np.ndarray:
     if len(setups) < n_components:
         return np.zeros((len(setups), n_components))
 
     features = np.array(
-        [[s.score, 1 if s.direction == Direction("bullish") else -1] for s in setups]
+        [[s.score, 1 if s.direction == "bullish" else -1] for s in setups]
     )
 
     from sklearn.decomposition import PCA
@@ -57,8 +65,8 @@ def _compute_pca_factors(setups: list[Setup], n_components: int = 3) -> np.ndarr
 
 
 def check_portfolio_constraints(
-    new_setup: Setup,
-    existing_setups: list[Setup],
+    new_setup: PortfolioSetup,
+    existing_setups: list[PortfolioSetup],
     prices: dict[str, float],
     constraints: PortfolioConstraints,
 ) -> tuple[bool, str]:
