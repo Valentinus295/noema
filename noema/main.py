@@ -64,6 +64,7 @@ from noema.agents.guardian import GuardianAgent, GuardianState
 # Broker
 from noema.broker.paper import PaperBroker
 from noema.broker.mt5 import MT5Broker
+from noema.broker.mt5_linux import MT5LinuxBroker
 
 logger = structlog.get_logger(__name__)
 
@@ -268,7 +269,10 @@ async def create_orchestrator(
     )
 
     # ── Broker ───────────────────────────────────────────────────────
-    if settings.broker.type == "mt5":
+    broker_type = settings.broker.type if settings.broker else "paper"
+    if broker_type == "mt5_linux":
+        broker = MT5LinuxBroker(settings)
+    elif broker_type == "mt5":
         broker = MT5Broker(settings)
     else:
         broker = PaperBroker(settings)

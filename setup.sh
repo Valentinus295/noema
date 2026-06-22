@@ -83,6 +83,9 @@ prompt_choice() {
 
 banner
 
+# Paths for Pop!_OS / Ubuntu
+WINE_MT5_PATH="$HOME/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe"
+
 # ── Step 0: Prerequisites Check ───────────────────────────────
 section "Step 0: Checking prerequisites"
 
@@ -121,8 +124,34 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo -e "${YELLOW}Continuing with available tools. Install missing ones later.${NC}"
 fi
 
-# ── Step 1: Python Environment ────────────────────────────────
-section "Step 1: Python environment"
+# ── Step 1: Wine + MT5 (Pop!_OS / Ubuntu) ───────────────────
+section "Step 1: MetaTrader 5 on Linux"
+
+if command -v wine &> /dev/null && [ -f "$WINE_MT5_PATH" ]; then
+    success "Wine + MT5 already installed"
+else
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}MetaTrader 5 requires Wine on Linux.${NC}"
+    echo ""
+    echo -e "  ${CYAN}Pop!_OS 24.04 / Ubuntu — Install Wine:${NC}"
+    echo -e "  sudo dpkg --add-architecture i386"
+    echo -e "  sudo apt update && sudo apt install wine64 wine32"
+    echo ""
+    echo -e "  ${CYAN}Then install MT5:${NC}"
+    echo -e "  1. Download MT5 from your broker (FxPesa, FBS, etc.)"
+    echo -e "  2. Run: wine ~/Downloads/fxpesa5setup.exe"
+    echo -e "  3. Complete the installation wizard"
+    echo -e "  4. Log into your MT5 account"
+    echo ""
+    echo -e "  ${CYAN}Install mt5linux bridge:${NC}"
+    echo -e "  pip install mt5linux"
+    echo ""
+    echo -e "  ${YELLOW}Run this script again after installing MT5.${NC}"
+    echo ""
+fi
+
+# ── Step 2: Python Environment ────────────────────────────────
+section "Step 2: Python environment"
 
 # Detect package manager
 if command -v uv &> /dev/null; then
@@ -138,13 +167,14 @@ else
     python3 -m venv .venv
     source .venv/bin/activate
     pip install --upgrade pip
-    # Install core dependencies
+    # Install core dependencies + mt5linux for Linux MT5 bridge
     pip install -e ".[dev]"
-    success "Python dependencies installed via pip"
+    pip install mt5linux
+    success "Python dependencies installed via pip (incl. mt5linux for Linux MT5)"
 fi
 
-# ── Step 2: Credentials ───────────────────────────────────────
-section "Step 2: Credentials Configuration"
+# ── Step 3: Credentials ───────────────────────────────────────
+section "Step 3: Credentials Configuration"
 
 echo ""
 echo -e "  ${YELLOW}${BOLD}🔑  Credential Setup${NC}"
@@ -300,8 +330,8 @@ FOOTER
 
 success ".env file created with $(wc -l < .env) lines"
 
-# ── Step 3: Verify Configuration ──────────────────────────────
-section "Step 3: Verifying configuration"
+# ── Step 4: Verify Configuration ──────────────────────────────
+section "Step 4: Verifying configuration"
 
 if [ -n "${NIM_API_KEY:-}" ] || grep -q "NIM_API_KEY=nvapi-" .env 2>/dev/null; then
     success "NVIDIA NIM API key configured"
@@ -315,8 +345,8 @@ else
     warn "MT5 credentials not set — broker connection disabled"
 fi
 
-# ── Step 4: Rust Build (if available) ─────────────────────────
-section "Step 4: Rust workspace"
+# ── Step 5: Rust Build (if available) ─────────────────────────
+section "Step 5: Rust workspace"
 
 if command -v cargo &> /dev/null; then
     info "Building Rust crates..."
@@ -332,8 +362,8 @@ else
     info "Install Rust later: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
 fi
 
-# ── Step 5: Dashboard Setup ───────────────────────────────────
-section "Step 5: Dashboard"
+# ── Step 6: Dashboard Setup ───────────────────────────────────
+section "Step 6: Dashboard"
 
 if command -v node &> /dev/null && command -v npm &> /dev/null; then
     info "Installing dashboard dependencies..."
@@ -347,8 +377,8 @@ else
     info "Install Node.js: https://nodejs.org (LTS version)"
 fi
 
-# ── Step 6: Docker Services (optional) ────────────────────────
-section "Step 6: Docker services"
+# ── Step 7: Docker Services (optional) ────────────────────────
+section "Step 7: Docker services"
 
 if command -v docker &> /dev/null && docker compose version &> /dev/null; then
     info "Docker detected. Starting background services..."
@@ -363,8 +393,20 @@ else
     info "Install Docker: https://docs.docker.com/engine/install/"
 fi
 
-# ── Step 7: Run Tests ────────────────────────────────────────
-section "Step 7: Quick validation"
+# ── Step 8: MT5 Connection Test ──────────────────────────────
+section "Step 8: MT5 Connection Test"
+
+if [ -f noema/scripts/start_mt5.py ] && command -v wine &> /dev/null; then
+    info "Testing MT5 connection..."
+    if python3 -m noema.scripts.start_mt5 2>/dev/null; then
+        success "MT5 connection test passed"
+    else
+        warn "MT5 not currently running — start it with: python -m noema.scripts.start_mt5"
+    fi
+fi
+
+# ── Step 9: Quick validation ──────────────────────────────────
+section "Step 9: Quick validation"
 
 if [ -f noema/scripts/run_tests.sh ]; then
     info "Running import validation..."
@@ -386,17 +428,31 @@ echo ""
 echo -e "  ${CYAN}# Activate environment${NC}"
 echo -e "  source .venv/bin/activate"
 echo ""
-echo -e "  ${CYAN}# Run analysis on a pair${NC}"
-echo -e "  python -m noema.main --mode analyze --pair EURUSD"
+echo -e "  ${BOLD}${CYAN}── MT5 Setup (Pop!_OS / Linux) ──${NC}"
 echo ""
-echo -e "  ${CYAN}# Paper trading${NC}"
+echo -e "  ${CYAN}# 1. Start MT5 under Wine${NC}"
+echo -e "  python -m noema.scripts.start_mt5"
+echo ""
+echo -e "  ${CYAN}# 2. Verify MT5 is running${NC}"
+echo -e "  python -c \"from noema.scripts.start_mt5 import check_mt5_running; print(check_mt5_running())\""
+echo ""
+echo -e "  ${BOLD}${CYAN}── Trading ──${NC}"
+echo ""
+echo -e "  ${CYAN}# Paper trading (safe — no real money)${NC}"
 echo -e "  python -m noema.main --mode paper --pair EURUSD"
 echo ""
-echo -e "  ${CYAN}# Live trading (requires MT5 + credentials)${NC}"
-echo -e "  python -m noema.main --mode live"
+echo -e "  ${CYAN}# Live trading with MT5 (requires MT5 running under Wine)${NC}"
+echo -e "  python -m noema.main --mode live --broker mt5_linux"
 echo ""
-echo -e "  ${CYAN}# Start dashboard${NC}"
+echo -e "  ${BOLD}${CYAN}── Dashboard (watch trades live) ──${NC}"
+echo ""
+echo -e "  ${CYAN}# Terminal 1: Start the backend${NC}"
+echo -e "  cd dashboard && python server/api.py"
+echo ""
+echo -e "  ${CYAN}# Terminal 2: Start the frontend${NC}"
 echo -e "  cd dashboard && npm run dev"
+echo ""
+echo -e "  ${CYAN}# Open http://localhost:3000 in your browser${NC}"
 echo ""
 echo -e "  ${CYAN}# Run tests${NC}"
 echo -e "  bash noema/scripts/run_tests.sh coverage"
