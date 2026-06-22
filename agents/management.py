@@ -10,12 +10,12 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class TradeManagementAgent(Agent):
+class TradeManagementAgent(DeterministicAgent):
     """Agent #15 — Manages live positions.
 
     Monitors: Open Profit, Drawdown, News Events, Volatility.

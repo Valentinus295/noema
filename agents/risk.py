@@ -10,12 +10,12 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class RiskManagerAgent(Agent):
+class RiskManagerAgent(DeterministicAgent):
     """Agent #13 — Risk Manager.
 
     Protects capital. Calculates position sizing, enforces loss limits,
@@ -121,3 +121,98 @@ class RiskManagerAgent(Agent):
             },
             reasoning=reasoning,
         )
+
+from dataclasses import dataclass
+
+@dataclass
+class RiskParams:
+    """Parameters for position sizing and risk management."""
+    risk_pct: float = 0.01          # 1% of balance per trade
+    max_daily_loss_pct: float = 0.03  # 3% daily loss limit
+    max_weekly_loss_pct: float = 0.08  # 8% weekly loss limit
+    min_rr_ratio: float = 2.0       # Minimum risk/reward
+    max_open_trades: int = 5
+    atr_buffer_mult: float = 1.0    # ATR multiplier for SL buffer
+
+
+def compute_sl_tp(
+    bars: list, entry_price: float, direction, atr_mult_sl: float = 1.5, atr_mult_tp: float = 3.0
+) -> tuple[float, float]:
+    """Compute stop-loss and take-profit levels using ATR.
+
+    Args:
+        bars: List of Bar objects for ATR calculation
+        entry_price: Entry price level
+        direction: Direction enum ("bullish" or "bearish")
+        atr_mult_sl: ATR multiplier for stop-loss distance
+        atr_mult_tp: ATR multiplier for take-profit distance
+
+    Returns:
+        (stop_loss, take_profit) tuple
+    """
+    if not bars or len(bars) < 15:
+        # Fallback: use 0.1% of price
+        sl_dist = entry_price * 0.001
+        tp_dist = entry_price * 0.002
+    else:
+        # Compute ATR(14)
+        tr_values = []
+        for i in range(1, len(bars)):
+            tr = max(
+                bars[i].high - bars[i].low,
+                abs(bars[i].high - bars[i - 1].close),
+                abs(bars[i].low - bars[i - 1].close),
+            )
+            tr_values.append(tr)
+        atr = sum(tr_values[-14:]) / min(14, len(tr_values))
+        sl_dist = atr * atr_mult_sl
+        tp_dist = atr * atr_mult_tp
+
+    dir_str = str(direction) if not isinstance(direction, str) else direction
+    if "bullish" in dir_str.lower():
+        sl = entry_price - sl_dist
+        tp = entry_price + tp_dist
+    else:
+        sl = entry_price + sl_dist
+        tp = entry_price - tp_dist
+
+    return (round(sl, 5), round(tp, 5))
+
+
+def compute_position_size(
+    balance: float, entry_price: float, sl_price: float,
+    risk_params: RiskParams, symbol_info: dict | None = None
+) -> float:
+    """Compute position size (lots) based on risk percentage.
+
+    Args:
+        balance: Account balance
+        entry_price: Planned entry price
+        sl_price: Stop-loss price
+        risk_params: Risk parameters
+        symbol_info: Optional symbol info dict for pip value
+
+    Returns:
+        Lot size (minimum 0.01)
+    """
+    risk_amount = balance * risk_params.risk_pct
+    sl_distance = abs(entry_price - sl_price)
+
+    if sl_distance == 0:
+        return 0.01
+
+    # Determine pip value based on symbol
+    symbol = (symbol_info or {}).get("symbol", "")
+    if "JPY" in str(symbol):
+        pip_value = 0.01
+    else:
+        pip_value = 0.0001
+
+    sl_pips = sl_distance / pip_value
+    if sl_pips == 0:
+        return 0.01
+
+    # Standard lot: 1 pip = $10 for standard forex pairs
+    lot_size = risk_amount / (sl_pips * 10)
+    return max(0.01, round(lot_size, 2))
+

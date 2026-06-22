@@ -10,12 +10,12 @@ from typing import Any
 import pandas as pd
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class OpportunitySurveillanceAgent(Agent):
+class OpportunitySurveillanceAgent(DeterministicAgent):
     """Agent #8 — Watches price continuously.
 
     Monitors: Price approaching support, resistance, order blocks, liquidity.

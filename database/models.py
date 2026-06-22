@@ -1,4 +1,9 @@
-"""Database models for VMPM trade history and knowledge base."""
+"""Database models for VMPM trade history and knowledge base.
+
+STATUS: PREPARED BUT NOT INTEGRATED.
+These models are defined for future use with DatabaseEngine.
+Current persistence uses models/knowledge.py (JSON file).
+"""
 
 from __future__ import annotations
 
@@ -33,7 +38,7 @@ class TradeRecord(Base):
     decision_reasoning = Column(Text, nullable=True)
     opened_at = Column(DateTime, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
-    status = Column(String(10), default="open")  # open, closed, cancelled
+    status = Column(String(10), default="open")
 
 
 class KnowledgeEntry(Base):
@@ -41,7 +46,7 @@ class KnowledgeEntry(Base):
     __tablename__ = "knowledge"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    category = Column(String(50), nullable=False)  # session, pattern, regime
+    category = Column(String(50), nullable=False)
     key = Column(String(100), nullable=False)
     wins = Column(Integer, default=0)
     losses = Column(Integer, default=0)

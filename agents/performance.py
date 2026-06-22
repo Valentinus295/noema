@@ -9,12 +9,12 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class PerformanceAnalystAgent(Agent):
+class PerformanceAnalystAgent(DeterministicAgent):
     """Agent #16 — Analyzes results.
 
     Tracks: Win rate, Drawdown, RR ratio, Session performance, Setup performance.

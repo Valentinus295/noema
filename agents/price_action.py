@@ -11,12 +11,12 @@ import pandas as pd
 import structlog
 
 from vmpm.analysis.candlestick import CandlestickDetector
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class PriceActionAgent(Agent):
+class PriceActionAgent(DeterministicAgent):
     """Agent #10 — Reads the language of candles.
 
     Detects: Bullish Engulfing, Hammer, Morning Star, Shooting Star, etc.

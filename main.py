@@ -1,15 +1,17 @@
-"""VMPM Main Orchestrator — the brain that coordinates all 17 agents.
+"""VMPM Main — Modern Agentic Trading System.
 
-Runs the complete 12-phase trading pipeline:
-1. Fundamental Analysis → 2. Trend → 3. Market Structure → 4. S/R Mapping
-→ 5. Order Blocks → 6. WAIT FOR PRICE → 7. RSI → 8. Candlestick
-→ 9. Validation → 10. Risk Management → 11. Execution → 12. Learning
+Uses the wave-based parallel orchestrator:
+- Layer 1: Data agents (parallel, deterministic)
+- Layer 2: Analysis agents (parallel, deterministic + LLM)
+- Layer 3: Decision agents (sequential LLM debate)
+- Layer 4: Execution (deterministic)
+- Layer 5: Learning (background LLM reflection)
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
+import os
 import signal
 import sys
 from datetime import datetime, timezone
@@ -17,383 +19,149 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.config import load_config, VMPMConfig
-from vmpm.core.message_bus import MessageBus
-from vmpm.core.state_machine import TradingPipeline, PipelineState
+from vmpm.core.settings import Settings, load_settings
+from vmpm.core.nim_client import NIMClient, ModelTier
+from vmpm.core.orchestrator_modern import ModernOrchestrator
+from vmpm.core.metrics import MetricsCollector
+from vmpm.core.storage import TradeStore, RedisCache
 
-# Agents
+# ── Agent Imports ────────────────────────────────────────────────────
+# Layer 1: Data agents (deterministic)
 from vmpm.agents.macro import MacroEconomicAgent
 from vmpm.agents.currency import CurrencyStrengthAgent
+from vmpm.agents.session import SessionIntelligenceAgent
+
+# Layer 2: Analysis agents (deterministic)
 from vmpm.agents.structure import MarketStructureAgent
 from vmpm.agents.institutional import InstitutionalFootprintAgent
 from vmpm.agents.sr import SupportResistanceAgent
-from vmpm.agents.session import SessionIntelligenceAgent
-from vmpm.agents.opportunity import OpportunitySurveillanceAgent
 from vmpm.agents.momentum import MomentumAgent
 from vmpm.agents.price_action import PriceActionAgent
+
+# Layer 3: Decision agents (LLM-powered)
 from vmpm.agents.thesis import TradeThesisAgent
 from vmpm.agents.devil import DevilsAdvocateAgent
 from vmpm.agents.cio import CIOAgent
+
+# Layer 4: Execution agents (deterministic)
 from vmpm.agents.risk import RiskManagerAgent
 from vmpm.agents.execution import ExecutionAgent
-from vmpm.agents.management import TradeManagementAgent
-from vmpm.agents.performance import PerformanceAnalystAgent
+
+# Layer 5: Learning agents (LLM-powered)
 from vmpm.agents.learning import LearningAgent
+
+# Self-learning + journaling + Telegram
 from vmpm.agents.reflector import ReflectorAgent
 from vmpm.database.journal import TradeJournal
 from vmpm.agents.telegram_bot import TelegramBot
 
-# Infrastructure
-from vmpm.data.feed import MarketDataFeed
-from vmpm.data.calendar import EconomicCalendar
+# Broker
 from vmpm.broker.paper import PaperBroker
 from vmpm.broker.mt5 import MT5Broker
-from vmpm.models.knowledge import KnowledgeBase
 
 logger = structlog.get_logger(__name__)
 
 
-class VMPMOrchestrator:
-    """The Valentine Money Printing Machine orchestrator.
+# ── Companion Services ───────────────────────────────────────────────
 
-    Coordinates all 17 agents through the 12-phase trading pipeline.
-    """
 
-    def __init__(self, config: VMPMConfig | None = None) -> None:
-        self.config = config or load_config()
-        self._running = False
-        self._shutdown_event = asyncio.Event()
+class CompanionServices:
+    """ReflectorAgent + TradeJournal + Telegram — companion services
+    that sit alongside the ModernOrchestrator and provide self-learning,
+    trade journaling, and Telegram control surface."""
 
-        # Core infrastructure
-        self.bus = MessageBus()
-        self.pipeline = TradingPipeline()
-        self.knowledge = KnowledgeBase()
-
-        # Initialize broker
-        if self.config.broker.type == "mt5":
-            self.broker = MT5Broker(self.config)
-        else:
-            self.broker = PaperBroker(self.config)
-
-        # Data
-        self.data_feed = MarketDataFeed(self.broker)
-        self.calendar = EconomicCalendar(self.config)
-
-        # Self-learning system (grows with every trade)
+    def __init__(self) -> None:
         self.reflector = ReflectorAgent()
         self.journal = TradeJournal()
+        self.telegram = TelegramBot()
 
-        # Initialize all 17 agents
-        kwargs = {"config": self.config, "message_bus": self.bus}
-        self.agents = {
-            "macro": MacroEconomicAgent(**kwargs),
-            "currency": CurrencyStrengthAgent(**kwargs),
-            "structure": MarketStructureAgent(**kwargs),
-            "institutional": InstitutionalFootprintAgent(**kwargs),
-            "sr": SupportResistanceAgent(**kwargs),
-            "session": SessionIntelligenceAgent(**kwargs),
-            "opportunity": OpportunitySurveillanceAgent(**kwargs),
-            "momentum": MomentumAgent(**kwargs),
-            "price_action": PriceActionAgent(**kwargs),
-            "thesis": TradeThesisAgent(**kwargs),
-            "devil": DevilsAdvocateAgent(**kwargs),
-            "cio": CIOAgent(**kwargs),
-            "risk": RiskManagerAgent(**kwargs),
-            "execution": ExecutionAgent(**kwargs),
-            "management": TradeManagementAgent(**kwargs),
-            "performance": PerformanceAnalystAgent(**kwargs),
-            "learning": LearningAgent(**kwargs),
-        }
+    def record_trade(
+        self,
+        pair: str,
+        decision: str,
+        context: dict[str, Any],
+        agent_reports: dict[str, dict],
+    ) -> None:
+        """Record an executed trade for self-learning and journaling."""
+        try:
+            trade_record = {
+                "symbol": pair,
+                "direction": "buy" if decision == "BUY" else "sell",
+                "pnl": 0.0,
+                "session": context.get("session", "unknown"),
+                "market_regime": "unknown",
+                "trend": context.get("trend", "unknown"),
+                "confidence": agent_reports.get("thesis", {}).get("confidence", 0),
+                "confluence_score": sum(
+                    r.get("confidence", 0) for r in agent_reports.values()
+                ) / max(len(agent_reports), 1),
+                "exit_reason": "open",
+                "agent_reports": agent_reports,
+            }
+            self.reflector.record_trade(trade_record)
 
-        # Telegram integration
-        self._telegram = TelegramBot()
+            self.journal.record_trade(
+                ticket=0,
+                symbol=pair,
+                direction="buy" if decision == "BUY" else "sell",
+                entry_price=context.get("current_price", 0),
+                exit_price=0,
+                volume=context.get("lot_size", 0.01),
+                sl=context.get("stop_loss", 0),
+                tp=context.get("take_profit", 0),
+                pnl=0,
+                pnl_pips=0,
+                entry_time=datetime.now(timezone.utc),
+                exit_time=datetime.now(timezone.utc),
+                exit_reason="open",
+                session="unknown",
+                settings_hash=self.journal.compute_config_hash({}),
+                git_sha="",
+                agent_reports=agent_reports,
+            )
+        except Exception as exc:
+            logger.error("trade_recording_failed", error=str(exc))
 
-        # Configure logging
-        structlog.configure(
-            processors=[
-                structlog.stdlib.filter_by_level,
-                structlog.stdlib.add_logger_name,
-                structlog.stdlib.add_log_level,
-                structlog.processors.TimeStamper(fmt="iso"),
-                structlog.processors.StackInfoRenderer(),
-                structlog.processors.format_exc_info,
-                structlog.dev.ConsoleRenderer(),
-            ],
-            wrapper_class=structlog.stdlib.BoundLogger,
-            context_class=dict,
-            logger_factory=structlog.PrintLoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+    def get_learned_params(self) -> dict[str, Any]:
+        """Get ReflectorAgent's adapted parameters."""
+        return self.reflector.get_adapted_params()
 
     async def start(self) -> None:
-        """Start the VMPM system."""
-        logger.info("=" * 60)
-        logger.info("  VALENTINE MONEY PRINTING MACHINE (VMPM)")
-        logger.info("  Multi-Agent Trading System v1.0.0")
-        logger.info("=" * 60)
-
-        # Start infrastructure
-        await self.bus.start()
-        self.broker.initialize()
-
-        # Load learned knowledge from ReflectorAgent
+        """Start Telegram bot."""
         adapted = self.reflector.get_adapted_params()
         if adapted.get("lessons"):
-            logger.info(f"  🧠 Loaded {len(adapted['lessons'])} lessons from ReflectorAgent")
-
-        # Start all agents
-        for name, agent in self.agents.items():
-            await agent.start()
-            logger.info(f"  ✓ Agent started: {agent.role} ({agent.name})")
-
-        # Register Telegram handlers and start bot
-        self._telegram.register_handlers({
-            "status": self._handle_telegram_status,
-            "positions": self._handle_telegram_positions,
-            "flatten": self._handle_telegram_flatten,
-            "halt": self._handle_telegram_halt,
-            "resume": self._handle_telegram_resume,
-            "balance": self._handle_telegram_balance,
-            "lessons": self._handle_telegram_lessons,
-            "learn": self._handle_telegram_learn,
-        })
-        await self._telegram.start()
-
-        self._running = True
-        logger.info("=" * 60)
-        logger.info("  All 17 agents + ReflectorAgent + Telegram online. System ready.")
-        logger.info(f"  Broker: {self.config.broker.type.upper()}")
-        logger.info(f"  Pairs: {', '.join(self.config.trading.pairs)}")
-        logger.info("=" * 60)
+            logger.info(f"Loaded {len(adapted['lessons'])} lessons from ReflectorAgent")
+        await self.telegram.start()
 
     async def stop(self) -> None:
-        """Gracefully stop the VMPM system."""
-        logger.info("Shutting down VMPM...")
-        self._running = False
-        self._shutdown_event.set()
-
-        await self._telegram.stop()
-        for agent in self.agents.values():
-            await agent.stop()
-
-        self.broker.shutdown()
-        await self.bus.stop()
+        """Stop Telegram bot and close journal."""
+        await self.telegram.stop()
         self.journal.close()
-        logger.info("VMPM stopped.")
 
-    # ------------------------------------------------------------------
-    # Main Trading Loop
-    # ------------------------------------------------------------------
 
-    async def run(self) -> None:
-        """Main entry point — starts system and runs the trading loop."""
-        await self.start()
+# ── Telegram Command Handlers (wired to CompanionServices) ──────────
 
-        try:
-            while self._running:
-                await self._trading_cycle()
-                await asyncio.sleep(60)  # Check every minute
-        except asyncio.CancelledError:
-            pass
-        finally:
-            await self.stop()
 
-    async def _trading_cycle(self) -> None:
-        """Execute one complete trading cycle across all pairs."""
-        for pair in self.config.trading.pairs:
-            try:
-                await self._analyze_pair(pair)
-            except Exception as exc:
-                logger.error(f"Error analyzing {pair}: {exc}")
+def _build_telegram_handlers(services: CompanionServices, broker: Any) -> dict[str, Any]:
+    """Build Telegram command handlers bound to companion services."""
 
-    async def _analyze_pair(self, pair: str) -> None:
-        """Run the full 12-phase pipeline for a single pair."""
-        logger.info(f"\n{'─' * 40}")
-        logger.info(f"  Analyzing: {pair}")
-        logger.info(f"{'─' * 40}")
-
-        # Fetch data
-        prices = await self.data_feed.get_multi_tf(
-            pair, ["M15", "H1", "H4", "D1", "W1", "MN1"]
-        )
-        events = await self.calendar.get_events()
-        account = self.broker.get_account_info()
-
-        context: dict[str, Any] = {
-            "pair": pair,
-            "prices": prices,
-            "price_data": prices.get("H1"),
-            "economic_events": events,
-            "account_balance": account.get("balance", 10000),
-            "daily_pnl": self.broker.get_daily_pnl(),
-            "weekly_pnl": self.broker.get_weekly_pnl(),
-            "open_trades": len(self.broker.get_open_positions()),
-            "open_positions": [
-                p.to_dict() for p in self.broker.get_open_positions()
-            ],
-        }
-
-        # Inject ReflectorAgent learned parameters — these influence agent decisions
-        context = self.inject_learned_params(context)
-
-        # Phase 1-6: Analysis Pipeline
-        agent_reports: dict[str, dict] = {}
-
-        # Phase 1: Fundamental Analysis
-        report = await self.agents["macro"].process(context)
-        agent_reports["macro-economic"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["fundamental_scores"] = report.data.get("currency_scores", {})
-        context["fundamental_bias"] = report.signal
-
-        if not self.pipeline.advance(report=None):
-            return
-
-        # Phase 2: Trend Identification (via structure agent)
-        report = await self.agents["structure"].process(context)
-        agent_reports["market-structure"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["trend"] = report.signal
-        if not self.pipeline.advance(report=None):
-            return
-
-        # Phase 3: Support & Resistance
-        report = await self.agents["sr"].process(context)
-        agent_reports["support-resistance"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["buy_zones"] = report.data.get("buy_zones", [])
-        context["sell_zones"] = report.data.get("sell_zones", [])
-
-        # Also run institutional footprint
-        report = await self.agents["institutional"].process(context)
-        agent_reports["institutional-footprint"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-        context["order_blocks"] = report.data.get("order_blocks", [])
-
-        # Session analysis
-        report = await self.agents["session"].process(context)
-        agent_reports["session-intelligence"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Currency strength
-        report = await self.agents["currency"].process(context)
-        agent_reports["currency-strength"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 4: Opportunity Surveillance
-        report = await self.agents["opportunity"].process(context)
-        agent_reports["opportunity-surveillance"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 5: WAITING FOR PRICE — skip in analysis mode, continue to check conditions
-        logger.info("  Waiting for price to reach zone...")
-
-        # Phase 6: RSI Confirmation
-        report = await self.agents["momentum"].process(context)
-        agent_reports["momentum"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 7: Candlestick Confirmation
-        report = await self.agents["price_action"].process(context)
-        agent_reports["price-action"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Phase 8: Trade Thesis
-        direction = "long" if context.get("trend") == "BULLISH" else "short"
-        context["direction"] = direction
-        context["agent_reports"] = agent_reports
-        report = await self.agents["thesis"].process(context)
-        agent_reports["trade-thesis"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # Devil's Advocate
-        report = await self.agents["devil"].process(context)
-        agent_reports["devils-advocate"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        # CIO Decision
-        context["pipeline_state"] = self.pipeline.state.value
-        report = await self.agents["cio"].process(context)
-        agent_reports["cio"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-        decision = report.data.get("decision", "WAIT")
-
-        # Apply ReflectorAgent min_confidence gate
-        min_conf = context.get("min_confidence", 0.5)
-        thesis_conf = agent_reports.get("trade-thesis", {}).get("confidence", 0)
-        if decision in ("BUY", "SELL") and thesis_conf < min_conf:
-            logger.info(f"  ReflectorAgent gate: confidence {thesis_conf:.0%} < min {min_conf:.0%} — REJECT")
-            decision = "WAIT"
-
-        # Check avoided patterns from ReflectorAgent
-        avoided = context.get("avoided_patterns", [])
-        if "all" in avoided and decision in ("BUY", "SELL"):
-            logger.info("  ReflectorAgent: regime "all" avoided — REJECT")
-            decision = "WAIT"
-
-        logger.info(f"  CIO Decision: {decision}")
-
-        # Phase 9-10: If approved, run risk management
-        if decision in ("BUY", "SELL"):
-            # Calculate SL/TP
-            current_price = float(prices.get("H1", prices.get("H4")).close.iloc[-1]) if prices.get("H1") is not None or prices.get("H4") is not None else 0
-            atr = 0.0010  # Default ATR
-
-            if direction == "long":
-                sl = current_price - 100 * atr
-                tp = current_price + 300 * atr
-            else:
-                sl = current_price + 100 * atr
-                tp = current_price - 300 * atr
-
-            context["current_price"] = current_price
-            context["stop_loss"] = sl
-            context["take_profit"] = tp
-
-            # Risk Manager
-            report = await self.agents["risk"].process(context)
-            agent_reports["risk-manager"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
-
-            if report.data.get("approved"):
-                lot_size = report.data.get("lot_size", 0.01)
-                # Apply ReflectorAgent risk multiplier (capped at 1.0 for safety)
-                risk_mult = min(context.get("risk_multiplier", 1.0), 1.0)
-                lot_size *= risk_mult
-                lot_size = round(max(0.01, lot_size), 2)
-                context["lot_size"] = lot_size
-
-                # Phase 10: Execution
-                context["broker"] = self.broker
-                context["magic_number"] = self.config.broker.magic_number
-                report = await self.agents["execution"].process(context)
-                logger.info(f"  Execution: {report.signal} — {report.reasoning}")
-            else:
-                logger.info(f"  Risk Manager rejected: {report.reasoning}")
-
-        logger.info(f"  Pipeline complete for {pair}")
-
-        # Phase 12: Self-Learning — ReflectorAgent records trade for learning
-        if decision in ("BUY", "SELL") and report.data.get("ticket"):
-            self._record_trade_for_learning(pair, decision, context, agent_reports)
-
-    # ------------------------------------------------------------------
-    # Telegram Command Handlers
-    # ------------------------------------------------------------------
-
-    async def _handle_telegram_status(self) -> str:
-        account = self.broker.get_account_info()
-        positions = self.broker.get_open_positions()
-        adapted = self.reflector.get_adapted_params()
+    async def handle_status() -> str:
+        account = broker.get_account_info() if hasattr(broker, "get_account_info") else {}
+        positions = broker.get_open_positions() if hasattr(broker, "get_open_positions") else []
+        adapted = services.reflector.get_adapted_params()
         lessons = adapted.get("lessons", [])
+        return (
+            "📊 VMPM STATUS\n"
+            f"  Balance: ${account.get('balance', 0):,.2f}\n"
+            f"  Equity: ${account.get('equity', 0):,.2f}\n"
+            f"  Open Positions: {len(positions)}\n"
+            f"  Risk Multiplier: {adapted.get('risk_multiplier', 1.0):.2f}\n"
+            f"  Min Confidence: {adapted.get('min_confidence', 0.5):.0%}\n"
+            f"  Lessons Loaded: {len(lessons)}"
+        )
 
-        lines = [
-            "📊 VMPM STATUS",
-            f"  Balance: ${account.get('balance', 0):,.2f}",
-            f"  Equity: ${account.get('equity', 0):,.2f}",
-            f"  Open Positions: {len(positions)}",
-            f"  Daily P&L: ${self.broker.get_daily_pnl():,.2f}",
-            f"  Risk Multiplier: {adapted.get('risk_multiplier', 1.0):.2f}",
-            f"  Min Confidence: {adapted.get('min_confidence', 0.5):.0%}",
-            f"  Lessons Loaded: {len(lessons)}",
-            f"  Trading: {'ACTIVE' if self._running else 'STOPPED'}",
-        ]
-        return "\n".join(lines)
-
-    async def _handle_telegram_positions(self) -> str:
-        positions = self.broker.get_open_positions()
+    async def handle_positions() -> str:
+        positions = broker.get_open_positions() if hasattr(broker, "get_open_positions") else []
         if not positions:
             return "No open positions"
         lines = ["📋 OPEN POSITIONS"]
@@ -404,43 +172,41 @@ class VMPMOrchestrator:
             )
         return "\n".join(lines)
 
-    async def _handle_telegram_flatten(self) -> str:
-        positions = self.broker.get_open_positions()
+    async def handle_flatten() -> str:
+        positions = broker.get_open_positions() if hasattr(broker, "get_open_positions") else []
         if not positions:
             return "No positions to flatten"
         count = 0
         for p in positions:
-            if self.broker.close_position(p.ticket):
+            if hasattr(broker, "close_position") and broker.close_position(p.ticket):
                 count += 1
-        # Halt trading after flatten to prevent re-opening
-        self._running = False
-        await self._telegram.send_alert(f"🚨 FLATTENED {count}/{len(positions)} positions. Trading HALTED.")
-        return f"Flattened {count} positions. Trading halted — use /resume to restart."
+        await services.telegram.send_alert(
+            f"🚨 FLATTENED {count}/{len(positions)} positions."
+        )
+        return f"Flattened {count} positions."
 
-    async def _handle_telegram_halt(self) -> str:
-        self._running = False
-        await self._telegram.send_alert("⏸️ VMPM TRADING HALTED")
-        return "Trading halted. Positions kept open."
+    async def handle_halt() -> str:
+        await services.telegram.send_alert("⏸️ VMPM TRADING HALTED")
+        return "Trading halted."
 
-    async def _handle_telegram_resume(self) -> str:
-        self._running = True
-        await self._telegram.send_alert("▶️ VMPM TRADING RESUMED")
+    async def handle_resume() -> str:
+        await services.telegram.send_alert("▶️ VMPM TRADING RESUMED")
         return "Trading resumed."
 
-    async def _handle_telegram_balance(self) -> str:
-        account = self.broker.get_account_info()
+    async def handle_balance() -> str:
+        account = broker.get_account_info() if hasattr(broker, "get_account_info") else {}
         return (
             f"💰 Balance: ${account.get('balance', 0):,.2f}\n"
             f"   Equity: ${account.get('equity', 0):,.2f}\n"
             f"   Free Margin: ${account.get('free_margin', 0):,.2f}"
         )
 
-    async def _handle_telegram_lessons(self) -> str:
-        manual = self.reflector.get_operating_manual()
-        return manual[:3000]  # Telegram message limit
+    async def handle_lessons() -> str:
+        manual = services.reflector.get_operating_manual()
+        return manual[:3000]
 
-    async def _handle_telegram_learn(self) -> str:
-        insights = self.reflector.learn()
+    async def handle_learn() -> str:
+        insights = services.reflector.learn()
         n_lessons = len(insights.get("lessons", []))
         bayesian = insights.get("bayesian_edge", {})
         wr = bayesian.get("posterior_mean", 0)
@@ -451,164 +217,176 @@ class VMPMOrchestrator:
             f"  Trades analyzed: {bayesian.get('total_trades', 0)}"
         )
 
-    # ------------------------------------------------------------------
-    # Self-Learning Integration
-    # ------------------------------------------------------------------
-
-    def _record_trade_for_learning(
-        self, pair: str, decision: str, context: dict[str, Any],
-        agent_reports: dict[str, dict],
-    ) -> None:
-        """Record executed trade for ReflectorAgent learning."""
-        try:
-            trade_record = {
-                "symbol": pair,
-                "direction": "buy" if decision == "BUY" else "sell",
-                "pnl": 0.0,  # Will be updated when trade closes
-                "session": context.get("session", "unknown"),
-                "market_regime": "unknown",
-                "trend": context.get("trend", "unknown"),
-                "confidence": agent_reports.get("trade-thesis", {}).get("confidence", 0),
-                "confluence_score": sum(
-                    r.get("confidence", 0) for r in agent_reports.values()
-                ) / max(len(agent_reports), 1),
-                "exit_reason": "open",
-                "agent_reports": agent_reports,
-            }
-            self.reflector.record_trade(trade_record)
-
-            # Also journal the trade
-            self.journal.record_trade(
-                ticket=0, symbol=pair, direction="buy" if decision == "BUY" else "sell",
-                entry_price=context.get("current_price", 0), exit_price=0,
-                volume=context.get("lot_size", 0.01),
-                sl=context.get("stop_loss", 0), tp=context.get("take_profit", 0),
-                pnl=0, pnl_pips=0,
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                exit_reason="open", session="unknown",
-                settings_hash=self.journal.compute_config_hash({}),
-                git_sha="", agent_reports=agent_reports,
-            )
-        except Exception as exc:
-            logger.error("trade_recording_failed", error=str(exc))
-
-    def inject_learned_params(self, context: dict[str, Any]) -> dict[str, Any]:
-        """Inject ReflectorAgent's learned parameters into context."""
-        adapted = self.reflector.get_adapted_params()
-        context["learned_params"] = adapted
-        context["min_confidence"] = adapted.get("min_confidence", 0.5)
-        context["risk_multiplier"] = adapted.get("risk_multiplier", 1.0)
-        context["avoided_patterns"] = adapted.get("avoided_patterns", [])
-        return context
-
-    # ------------------------------------------------------------------
-    # Single Analysis (for testing)
-    # ------------------------------------------------------------------
-
-    async def analyze_once(self, pair: str) -> dict[str, Any]:
-        """Run analysis once for a single pair and return results."""
-        prices = await self.data_feed.get_multi_tf(
-            pair, ["M15", "H1", "H4", "D1", "W1", "MN1"]
-        )
-        events = await self.calendar.get_events()
-        account = self.broker.get_account_info()
-
-        context: dict[str, Any] = {
-            "pair": pair,
-            "prices": prices,
-            "price_data": prices.get("H1"),
-            "economic_events": events,
-            "account_balance": account.get("balance", 10000),
-            "daily_pnl": 0.0,
-            "weekly_pnl": 0.0,
-            "open_trades": 0,
-        }
-
-        results: dict[str, Any] = {}
-
-        # Run all analysis agents
-        agents_to_run = [
-            "macro", "currency", "structure", "institutional",
-            "sr", "session", "opportunity", "momentum", "price_action",
-        ]
-
-        agent_reports: dict[str, dict] = {}
-        for name in agents_to_run:
-            report = await self.agents[name].process(context)
-            agent_reports[name] = {
-                "signal": report.signal,
-                "confidence": report.confidence,
-                "reasoning": report.reasoning,
-            }
-            results[name] = {
-                "signal": report.signal,
-                "confidence": report.confidence,
-                "reasoning": report.reasoning,
-            }
-
-        # Thesis
-        direction = "long" if agent_reports.get("structure", {}).get("signal") == "BULLISH" else "short"
-        context["direction"] = direction
-        context["agent_reports"] = agent_reports
-
-        report = await self.agents["thesis"].process(context)
-        agent_reports["thesis"] = {"signal": report.signal, "confidence": report.confidence}
-        results["thesis"] = {"signal": report.signal, "confidence": report.confidence, "reasoning": report.reasoning}
-
-        # Devil's Advocate
-        report = await self.agents["devil"].process(context)
-        results["devils_advocate"] = {"signal": report.signal, "confidence": report.confidence, "reasoning": report.reasoning}
-
-        # CIO
-        report = await self.agents["cio"].process(context)
-        results["cio_decision"] = {"signal": report.signal, "confidence": report.confidence, "reasoning": report.reasoning}
-
-        return results
+    return {
+        "status": handle_status,
+        "positions": handle_positions,
+        "flatten": handle_flatten,
+        "halt": handle_halt,
+        "resume": handle_resume,
+        "balance": handle_balance,
+        "lessons": handle_lessons,
+        "learn": handle_learn,
+    }
 
 
-# ------------------------------------------------------------------
-# CLI Entry Point
-# ------------------------------------------------------------------
+# ── Orchestrator Factory ────────────────────────────────────────────
+
+
+async def create_orchestrator(
+    settings: Settings,
+) -> tuple[ModernOrchestrator, CompanionServices]:
+    """Build and configure the modern orchestrator with companion services.
+
+    Returns (orchestrator, services) — the orchestrator runs the wave-based
+    pipeline, while services provides self-learning, journaling, and Telegram.
+    """
+
+    # ── NIM Client ───────────────────────────────────────────────────
+    api_key = settings.nim.api_key or os.getenv("NIM_API_KEY", "")
+    if not api_key:
+        logger.warning("NIM_API_KEY not set — LLM agents will use fallback logic")
+
+    tier_map = {
+        "fast": ModelTier.FAST,
+        "standard": ModelTier.STANDARD,
+        "heavy": ModelTier.HEAVY,
+    }
+    nim = NIMClient(
+        api_key=api_key,
+        base_url=settings.nim.base_url,
+        default_tier=tier_map.get(settings.nim.default_tier, ModelTier.STANDARD),
+        cache_ttl=settings.nim.cache_ttl,
+        cache_enabled=settings.nim.cache_enabled,
+        max_retries=settings.nim.max_retries,
+        rpm_limit=settings.nim.rpm_limit,
+    )
+
+    # ── Broker ───────────────────────────────────────────────────────
+    if settings.broker.type == "mt5":
+        broker = MT5Broker(settings)
+    else:
+        broker = PaperBroker(settings)
+
+    # ── Storage ──────────────────────────────────────────────────────
+    trade_store = None
+    redis_cache = None
+
+    if settings.database_url.startswith("postgresql"):
+        trade_store = TradeStore(settings.database_url)
+        await trade_store.initialize()
+
+    redis_url = settings.redis_url or os.getenv("REDIS_URL", "")
+    if redis_url:
+        redis_cache = RedisCache(redis_url)
+        await redis_cache.initialize()
+
+    # ── Metrics ──────────────────────────────────────────────────────
+    metrics = MetricsCollector(enabled=True)
+    metrics.set_system_info(
+        version="2.0.0",
+        pairs=settings.trading.pairs,
+    )
+
+    # ── Companion Services ───────────────────────────────────────────
+    services = CompanionServices()
+
+    # ── Orchestrator ─────────────────────────────────────────────────
+    orch = ModernOrchestrator(nim_client=nim, broker=broker, config=settings)
+
+    # Layer 1: Data agents (deterministic, parallel)
+    orch.register_data_agents([
+        MacroEconomicAgent(config=settings),
+        CurrencyStrengthAgent(config=settings),
+        SessionIntelligenceAgent(config=settings),
+    ])
+
+    # Layer 2: Analysis agents (deterministic, parallel)
+    orch.register_analysis_agents([
+        MarketStructureAgent(config=settings),
+        InstitutionalFootprintAgent(config=settings),
+        SupportResistanceAgent(config=settings),
+        MomentumAgent(config=settings),
+        PriceActionAgent(config=settings),
+    ])
+
+    # Layer 3: Decision agents (LLM, sequential debate)
+    orch.register_decision_agents(
+        thesis=TradeThesisAgent(config=settings, nim_client=nim),
+        devil=DevilsAdvocateAgent(config=settings, nim_client=nim),
+        cio=CIOAgent(config=settings, nim_client=nim),
+    )
+
+    # Layer 4: Execution agents (deterministic, sequential)
+    orch.register_execution_agents(
+        risk=RiskManagerAgent(config=settings),
+        execution=ExecutionAgent(config=settings, broker=broker),
+    )
+
+    # Layer 5: Learning agent (LLM, background)
+    orch.register_learning_agent(
+        LearningAgent(config=settings, nim_client=nim)
+    )
+
+    # Wire Telegram handlers
+    handlers = _build_telegram_handlers(services, broker)
+    services.telegram.register_handlers(handlers)
+
+    return orch, services
+
+
+# ── CLI Entry Point ──────────────────────────────────────────────────
+
 
 async def main() -> None:
-    """CLI entry point for VMPM."""
+    """VMPM entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="VMPM — Valentine Money Printing Machine")
-    parser.add_argument("--config", type=str, help="Path to config YAML")
-    parser.add_argument("--mode", choices=["run", "analyze", "paper"], default="paper",
-                        help="run=continuous, analyze=single analysis, paper=paper trading")
-    parser.add_argument("--pair", type=str, default="EURUSD", help="Pair to analyze")
+    parser = argparse.ArgumentParser(description="Valentine Money Printing Machine")
+    parser.add_argument("--config", type=str, help="Path to config file")
+    parser.add_argument("--interval", type=float, default=60.0, help="Cycle interval in seconds")
+    parser.add_argument("--dry-run", action="store_true", help="Use paper broker")
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    # Load config
+    settings = load_settings()
+    if args.dry_run:
+        settings.broker.type = "paper"
 
-    # Override to paper mode for safety
-    if args.mode == "paper":
-        config.broker.type = "paper"
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(
+            structlog.stdlib._NAME_TO_LEVEL.get(settings.log_level.lower(), 20)
+        ),
+    )
 
-    orchestrator = VMPMOrchestrator(config)
+    logger.info("vmpm_starting", version="2.0.0", pairs=settings.trading.pairs)
 
-    if args.mode == "analyze":
-        results = await orchestrator.analyze_once(args.pair)
-        print("\n" + "=" * 60)
-        print(f"  VMPM Analysis: {args.pair}")
-        print("=" * 60)
-        for agent, data in results.items():
-            print(f"\n  {agent.upper()}")
-            print(f"    Signal: {data['signal']}")
-            print(f"    Confidence: {data.get('confidence', 0):.0%}")
-            if "reasoning" in data:
-                for line in data["reasoning"].split("\n")[:3]:
-                    print(f"    {line}")
-        print("\n" + "=" * 60)
-    else:
-        # Run continuously
-        loop = asyncio.get_event_loop()
-        for sig_name in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig_name, lambda: asyncio.create_task(orchestrator.stop()))
-        await orchestrator.run()
+    # Create orchestrator + services
+    orch, services = await create_orchestrator(settings)
+
+    # Start companion services (Telegram, journal, reflector)
+    await services.start()
+
+    # Handle shutdown signals
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler(sig, _frame):
+        logger.info("shutdown_signal_received", signal=sig)
+        shutdown_event.set()
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
+    # Start orchestrator
+    await orch.start(interval=args.interval)
+
+    # Wait for shutdown
+    await shutdown_event.wait()
+
+    # Graceful shutdown
+    logger.info("vmpm_shutting_down")
+    await orch.stop()
+    await services.stop()
+    logger.info("vmpm_stopped")
 
 
 if __name__ == "__main__":

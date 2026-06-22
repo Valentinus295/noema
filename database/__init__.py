@@ -27,7 +27,11 @@ except ImportError:
 
 
 class DatabaseEngine:
-    """Async database engine for trade history and knowledge storage."""
+    """Async database engine for trade history and knowledge storage.
+
+    NOTE: Not currently integrated into the trading pipeline.
+    Prepared for future use when persistent storage is needed.
+    """
 
     def __init__(self, url: str = "sqlite+aiosqlite:///vmpm.db") -> None:
         if not _HAS_SQLALCHEMY:

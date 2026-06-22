@@ -2,11 +2,15 @@
 from vmpm.core.agent import Agent, AgentState
 from vmpm.core.message_bus import MessageBus, Message
 from vmpm.core.state_machine import TradingPipeline, PipelineState
-from vmpm.core.config import load_config, VMPMConfig
+from vmpm.core.settings import Settings, load_settings
+
+# Backward compatibility
+from vmpm.core.config import VMPMConfig, load_config
 
 __all__ = [
     "Agent", "AgentState",
     "MessageBus", "Message",
     "TradingPipeline", "PipelineState",
-    "load_config", "VMPMConfig",
+    "Settings", "load_settings",
+    "VMPMConfig", "load_config",
 ]

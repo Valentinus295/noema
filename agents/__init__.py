@@ -1,7 +1,11 @@
-"""VMPM Agent Swarm — 17 intelligent agents in a hedge fund hierarchy.
+"""VMPM Agents Package.
 
-Each agent owns a business function and uses many tools internally.
-They are departments in a hedge fund, not simple indicators.
+Contains two agent systems:
+- 7-agent pure-function system (per docs/ARCHITECTURE.md) — used by agents/orchestrator.py
+- 17-agent class-based system (legacy) — used by main.py
+
+The 7-agent system is the canonical architecture per the pinned ARCHITECTURE.md.
+Legacy class-based agents are retained for backward compatibility.
 """
 from vmpm.agents.macro import MacroEconomicAgent
 from vmpm.agents.currency import CurrencyStrengthAgent

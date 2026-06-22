@@ -11,12 +11,12 @@ import pandas as pd
 import structlog
 
 from vmpm.analysis.smc import SMCForecaster
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class InstitutionalFootprintAgent(Agent):
+class InstitutionalFootprintAgent(DeterministicAgent):
     """Agent #5 — Finds where smart money acted.
 
     Detects: Bullish/Bearish Order Blocks, Liquidity Sweeps, Imbalances, FVGs.

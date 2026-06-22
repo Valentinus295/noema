@@ -103,3 +103,59 @@ class BrokerBase(ABC):
     def get_weekly_pnl(self) -> float:
         """Get this week's realized P&L."""
         ...
+
+from vmpm.core.types import Bar
+
+from typing import Protocol, Sequence
+
+class BrokerProtocol(Protocol):
+    """Structural interface for broker implementations.
+
+    Used by the 7-agent orchestrator. BrokerBase (ABC) is the legacy interface.
+    """
+
+    async def connect(self) -> None: ...
+    async def disconnect(self) -> None: ...
+    async def is_connected(self) -> bool: ...
+    async def account_state(self) -> "AccountState": ...
+    async def bars(self, symbol: str, timeframe: str, count: int) -> Sequence["Bar"]: ...
+    async def tick(self, symbol: str) -> "Tick": ...
+    async def symbol_info(self, symbol: str) -> dict: ...
+    async def positions(self) -> Sequence["Position"]: ...
+    async def send_order(self, req: "OrderRequest") -> "Position": ...
+    async def modify_position(self, ticket: int, sl: float | None, tp: float | None) -> "Position": ...
+    async def close_position(self, ticket: int, volume: float | None = None) -> "Position": ...
+    async def close_all_positions(self, reason: str) -> Sequence["Position"]: ...
+
+
+@dataclass
+class OrderRequest:
+    """Request to place an order via the broker."""
+    symbol: str
+    side: str          # "buy" or "sell"
+    type: str = "market"  # "market" or "limit"
+    volume: float = 0.01
+    price: float | None = None
+    sl: float = 0.0
+    tp: float = 0.0
+    comment: str = ""
+
+
+@dataclass
+class Tick:
+    """A single price tick."""
+    bid: float
+    ask: float
+    time: float = 0.0
+
+
+@dataclass
+class AccountState:
+    """Account balance and margin state."""
+    balance: float = 0.0
+    equity: float = 0.0
+    margin: float = 0.0
+    free_margin: float = 0.0
+    leverage: int = 100
+    currency: str = "USD"
+

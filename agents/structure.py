@@ -12,12 +12,12 @@ import structlog
 
 from vmpm.analysis.technical import TechnicalAnalyzer
 from vmpm.analysis.smc import SMCForecaster
-from vmpm.core.agent import Agent, AgentReport
+from vmpm.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
 
-class MarketStructureAgent(Agent):
+class MarketStructureAgent(DeterministicAgent):
     """Agent #4 — Understands the story of price.
 
     Detects: HH, HL, LH, LL, BOS, CHoCH.
@@ -84,3 +84,72 @@ class MarketStructureAgent(Agent):
                       f"LH={structure['lower_highs']}, LL={structure['lower_lows']}. "
                       f"BOS={smc_structure['bos_detected']}, CHoCH={smc_structure['choch_detected']}",
         )
+
+
+from vmpm.core.types import Bar, Direction, Timeframe, Verdict
+
+def analyze_structure(symbol: str, bars: list[Bar]) -> Verdict:
+    """Pure-function structure analysis for the 7-agent pipeline.
+
+    Returns a Verdict for ConfluenceAgent to consume.
+    """
+    import pandas as pd
+
+    if len(bars) < 50:
+        return Verdict(
+            agent="StructureAgent",
+            symbol=symbol,
+            timeframe=Timeframe("H1"),
+            direction=Direction("neutral"),
+            strength=0.0,
+            rationale="Insufficient data for structure analysis",
+        )
+
+    # Convert bars to DataFrame
+    df = pd.DataFrame([
+        {"time": b.time, "open": b.open, "high": b.high,
+         "low": b.low, "close": b.close, "volume": b.volume}
+        for b in bars
+    ])
+
+    from vmpm.analysis.technical import TechnicalAnalyzer
+    from vmpm.analysis.smc import SMCForecaster
+
+    tech = TechnicalAnalyzer()
+    smc = SMCForecaster()
+
+    structure = tech.detect_structure(df)
+    smc_structure = smc.detect_structure_breaks(df)
+
+    combined = structure["structure"]
+    if smc_structure["choch_detected"]:
+        combined = smc_structure["bos_direction"].upper()
+
+    direction_map = {"BULLISH": Direction("bullish"), "BEARISH": Direction("bearish"), "RANGE": Direction("neutral")}
+    direction = direction_map.get(combined, Direction("neutral"))
+
+    strength = 0.0
+    if combined != "RANGE":
+        strength += 0.4
+    if smc_structure["bos_detected"]:
+        strength += 0.3
+    if structure["higher_highs"] and structure["higher_lows"]:
+        strength += 0.15
+    elif structure["lower_highs"] and structure["lower_lows"]:
+        strength += 0.15
+
+    rationale = (
+        f"Structure: {combined}. "
+        f"HH={structure['higher_highs']}, HL={structure['higher_lows']}, "
+        f"LH={structure['lower_highs']}, LL={structure['lower_lows']}. "
+        f"BOS={smc_structure['bos_detected']}, CHoCH={smc_structure['choch_detected']}"
+    )
+
+    return Verdict(
+        agent="StructureAgent",
+        symbol=symbol,
+        timeframe=Timeframe("H1"),
+        direction=direction,
+        strength=min(1.0, strength),
+        rationale=rationale,
+    )
