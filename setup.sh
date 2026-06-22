@@ -89,6 +89,24 @@ WINE_MT5_PATH="$HOME/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe"
 # ── Step 0: Prerequisites Check ───────────────────────────────
 section "Step 0: Checking prerequisites"
 
+OS="$(uname -s)"
+echo -e "  ${BOLD}System:${NC} $(uname -s) $(uname -m)"
+echo -e "  ${BOLD}Python:${NC} $(python3 --version 2>&1)"
+echo ""
+if [ "$OS" = "Linux" ]; then
+    echo -e "  ${GREEN}✓${NC} Linux — Wine + mt5linux for MT5"
+    NEED_WINE=true
+elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    echo -e "  ${GREEN}✓${NC} Windows — native MT5"
+    NEED_WINE=false
+elif [ "$OS" = "Darwin" ]; then
+    echo -e "  ${YELLOW}⚠${NC}  macOS — paper trading only"
+    NEED_WINE=false
+else
+    echo -e "  ${YELLOW}⚠${NC}  Unknown OS — paper trading"
+    NEED_WINE=false
+fi
+echo ""
 MISSING=()
 
 check_cmd() {
@@ -101,6 +119,15 @@ check_cmd() {
 }
 
 check_cmd python3
+# Only require Wine on Linux
+if [ "$NEED_WINE" = "true" ]; then
+    if command -v wine &> /dev/null; then
+        success "wine ($(wine --version 2>&1))"
+    else
+        warn "wine — NOT FOUND (needed for MT5 on Linux)"
+        MISSING+=("wine")
+    fi
+fi
 check_cmd pip3 2>/dev/null || check_cmd uv
 check_cmd cargo 2>/dev/null || true  # Rust optional at first
 check_cmd node   2>/dev/null || true  # Node optional at first
@@ -124,33 +151,30 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo -e "${YELLOW}Continuing with available tools. Install missing ones later.${NC}"
 fi
 
-# ── Step 1: Wine + MT5 (Pop!_OS / Ubuntu) ───────────────────
-section "Step 1: MetaTrader 5 on Linux"
+# ── Step 1: Wine + MT5 (platform-aware) ──────────────────────
+section "Step 1: Platform-specific setup"
 
-if command -v wine &> /dev/null && [ -f "$WINE_MT5_PATH" ]; then
-    success "Wine + MT5 already installed"
-else
+if [ "$NEED_WINE" = "true" ] && ! command -v wine &> /dev/null; then
     echo ""
-    echo -e "  ${YELLOW}${BOLD}MetaTrader 5 requires Wine on Linux.${NC}"
-    echo ""
-    echo -e "  ${CYAN}Pop!_OS 24.04 / Ubuntu — Install Wine:${NC}"
+    echo -e "  ${YELLOW}${BOLD}MT5 requires Wine on Linux.${NC}"
+    echo -e "  ${CYAN}Pop!_OS 24.04 / Ubuntu — one command:${NC}"
     echo -e "  sudo dpkg --add-architecture i386"
     echo -e "  sudo apt update && sudo apt install wine64 wine32"
     echo ""
-    echo -e "  ${CYAN}Then install MT5:${NC}"
-    echo -e "  1. Download MT5 from your broker (FxPesa, FBS, etc.)"
-    echo -e "  2. Run: wine ~/Downloads/fxpesa5setup.exe"
-    echo -e "  3. Complete the installation wizard"
-    echo -e "  4. Log into your MT5 account"
+    echo -e "  ${CYAN}Then install MT5 from your broker:${NC}"
+    echo -e "  wine ~/Downloads/fxpesa5setup.exe"
     echo ""
-    echo -e "  ${CYAN}Install mt5linux bridge:${NC}"
-    echo -e "  pip install mt5linux"
-    echo ""
-    echo -e "  ${YELLOW}Run this script again after installing MT5.${NC}"
-    echo ""
+elif [ "$NEED_WINE" = "true" ] && [ -f "$WINE_MT5_PATH" ]; then
+    success "Wine + MT5 detected"
+elif [ "$NEED_WINE" = "true" ]; then
+    success "Wine detected — install MT5: wine ~/Downloads/fxpesa5setup.exe"
+elif [ "$NEED_WINE" = "false" ] && echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    success "Windows — native MT5 available"
+elif [ "$OS" = "Darwin" ]; then
+    warn "macOS — paper trading only. MT5 not supported."
 fi
 
-# ── Step 2: Python Environment ────────────────────────────────
+# ── Step 2:
 section "Step 2: Python environment"
 
 # Detect package manager
@@ -167,9 +191,9 @@ else
     python3 -m venv .venv
     source .venv/bin/activate
     pip install --upgrade pip
-    # Install core dependencies + mt5linux for Linux MT5 bridge
+    # Install core deps + mt5linux (Linux only)
     pip install -e ".[dev]"
-    pip install mt5linux
+    [ "$NEED_WINE" = "true" ] && pip install mt5linux && success "mt5linux installed (Linux MT5 bridge)"
     success "Python dependencies installed via pip (incl. mt5linux for Linux MT5)"
 fi
 
@@ -428,21 +452,24 @@ echo ""
 echo -e "  ${CYAN}# Activate environment${NC}"
 echo -e "  source .venv/bin/activate"
 echo ""
-echo -e "  ${BOLD}${CYAN}── MT5 Setup (Pop!_OS / Linux) ──${NC}"
+echo -e "  ${BOLD}${CYAN}── Platform: ${OS} ──${NC}"
 echo ""
-echo -e "  ${CYAN}# 1. Start MT5 under Wine${NC}"
-echo -e "  python -m noema.scripts.start_mt5"
+if [ "$NEED_WINE" = "true" ]; then
+    echo -e "  ${CYAN}# Start MT5 under Wine${NC}"
+    echo -e "  python -m noema.scripts.start_mt5"
+    echo ""
+fi
+echo -e "  ${BOLD}${CYAN}── Trading (auto-detects platform) ──${NC}"
 echo ""
-echo -e "  ${CYAN}# 2. Verify MT5 is running${NC}"
-echo -e "  python -c \"from noema.scripts.start_mt5 import check_mt5_running; print(check_mt5_running())\""
-echo ""
-echo -e "  ${BOLD}${CYAN}── Trading ──${NC}"
-echo ""
-echo -e "  ${CYAN}# Paper trading (safe — no real money)${NC}"
+echo -e "  ${CYAN}# Paper trading (safe — works everywhere)${NC}"
 echo -e "  python -m noema.main --mode paper --pair EURUSD"
 echo ""
-echo -e "  ${CYAN}# Live trading with MT5 (requires MT5 running under Wine)${NC}"
-echo -e "  python -m noema.main --mode live --broker mt5_linux"
+if [ "$NEED_WINE" = "true" ] || echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    echo -e "  ${CYAN}# Live trading (auto-detects MT5)${NC}"
+    echo -e "  python -m noema.main --mode live"
+else
+    echo -e "  ${YELLOW}# Live trading unavailable on ${OS}${NC}"
+fi
 echo ""
 echo -e "  ${BOLD}${CYAN}── Dashboard (watch trades live) ──${NC}"
 echo ""

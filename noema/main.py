@@ -20,6 +20,7 @@ from typing import Any
 import structlog
 
 from noema.core.settings import Settings, load_settings
+from noema.core.platform import detect_platform, get_broker_class
 from noema.core.nim_client import NIMClient, ModelTier
 from noema.core.orchestrator_modern import ModernOrchestrator
 from noema.core.metrics import MetricsCollector
@@ -61,10 +62,8 @@ from noema.agents.telegram_bot import TelegramBot
 # Guardian Agent — kill-switches wired into pipeline
 from noema.agents.guardian import GuardianAgent, GuardianState
 
-# Broker
-from noema.broker.paper import PaperBroker
-from noema.broker.mt5 import MT5Broker
-from noema.broker.mt5_linux import MT5LinuxBroker
+# Broker — auto-detected based on platform
+from noema.core.platform import detect_platform, get_broker_class
 
 logger = structlog.get_logger(__name__)
 
@@ -268,14 +267,18 @@ async def create_orchestrator(
         rpm_limit=settings.nim.rpm_limit,
     )
 
-    # ── Broker ───────────────────────────────────────────────────────
-    broker_type = settings.broker.type if settings.broker else "paper"
-    if broker_type == "mt5_linux":
-        broker = MT5LinuxBroker(settings)
-    elif broker_type == "mt5":
-        broker = MT5Broker(settings)
-    else:
-        broker = PaperBroker(settings)
+    # ── Broker (auto-detected from platform) ─────────────────────────
+    platform_info = detect_platform()
+    BrokerClass = get_broker_class(platform_info)
+    broker = BrokerClass(settings)
+    
+    logger.info(
+        "platform_detected",
+        system=platform_info.system,
+        broker=platform_info.recommended_broker,
+        has_wine=platform_info.has_wine,
+        has_mt5=platform_info.has_mt5,
+    )
 
     # ── Storage ──────────────────────────────────────────────────────
     trade_store = None
