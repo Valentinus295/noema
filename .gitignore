@@ -47,3 +47,4 @@ research/notebooks/.ipynb_checkpoints/
 
 # uv
 .uv-cache/
+node_modules/

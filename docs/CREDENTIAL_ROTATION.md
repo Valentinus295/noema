@@ -4,7 +4,7 @@
 
 ## What Happened
 
-A GitHub PAT (`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`) was embedded in the Git remote URL:
+A GitHub PAT was embedded in the Git remote URL (token redacted for security):
 
 ```
 url = https://ghp_XXXX@github.com/Valentinus295/noema.git
@@ -19,7 +19,7 @@ This means the token is:
 ## Step 1: Revoke the Exposed Token (IMMEDIATE)
 
 1. Go to [GitHub Settings → Personal Access Tokens (Classic)](https://github.com/settings/tokens)
-2. Find the token matching `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`
+2. Find the token matching the one found in `.git/config` (run `git remote -v` to identify it)
 3. Click **Delete** / **Revoke**
 4. Confirm the revocation
 
@@ -103,7 +103,7 @@ git gc --prune=now --aggressive
 
 # 3. Remove the token from all branches using git-filter-repo
 pip install git-filter-repo
-git filter-repo --replace-text <(echo "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==>REDACTED")
+git filter-repo --replace-text <(echo "YOUR_EXPOSED_TOKEN==>REDACTED")
 
 # 4. Force push to overwrite remote history
 #    ⚠️ This rewrites history — all collaborators must re-clone
