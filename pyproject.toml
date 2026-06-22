@@ -1,10 +1,33 @@
 [project]
 name = "noema"
 version = "0.1.0"
-description = "Noema — multi-agent FX trading on MT5"
-authors = [{ name = "Valentine", email = "ovalentine964@example.com" }]
+description = "Noema — Multi-agent quantitative forex trading platform. Institutional-grade pipeline: SMC, econometrics, Kalman-HMM, LLM-augmented analysis."
+authors = [
+    { name = "Valentine Owuor", email = "ovalentine964@example.com" }
+]
+maintainers = [
+    { name = "Valentine Owuor" }
+]
 requires-python = ">=3.11,<3.14"
 readme = "README.md"
+license = { text = "MIT" }
+keywords = ["forex", "trading", "multi-agent", "quantitative", "econometrics", "smc", "mt5", "metatrader"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/Valentinus295/noema"
+Repository = "https://github.com/Valentinus295/noema"
+Documentation = "https://github.com/Valentinus295/noema/blob/main/README.md"
+Issues = "https://github.com/Valentinus295/noema/issues"
 
 dependencies = [
     # ── MT5 Bridge ────────────────────────────────────────────
