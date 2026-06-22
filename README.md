@@ -24,16 +24,16 @@ only for fundamental-bias scoring on news events and optional borderline-setup s
 See `docs/ARCHITECTURE.md` for the full design and `docs/CURRICULUM_MAPPING.md`
 for which academic concept lives in which file.
 
-## Quick start (Linux + Wine)
+## Quick start (any platform)
 
 ```bash
-cd ~/noema
-uv sync                                    # installs deps from pyproject.toml
-cp .env.example .env && $EDITOR .env       # fill in MT5 + Telegram + LiteLLM keys
-uv run scripts/fetch_history.py            # cache bar history
-uv run scripts/run_backtest.py             # validate edge before going live
-uv run scripts/run_live.py --broker fxpesa # paper or live (config-gated)
+cd noema
+./noema-setup                        # One command — does everything
+source .venv/bin/activate
+python -m noema.main --mode paper --pair EURUSD
 ```
+
+Noema auto-detects your OS and configures everything:
 
 ## Broker
 

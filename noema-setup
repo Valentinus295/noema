@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-# Noema — One-Command Production Setup
+# Noema — One-Command Setup
 # ═══════════════════════════════════════════════════════════════
-# Usage: bash setup.sh
+# Usage: ./noema-setup
 #
-# This script sets up EVERYTHING:
+# This ONE command does everything:
 #   • Python virtual environment + all dependencies
 #   • Rust toolchain + crate compilation
 #   • Node.js + dashboard dependencies
@@ -353,6 +353,7 @@ GRAFANA_ADMIN_PASSWORD=noema
 FOOTER
 
 success ".env file created with $(wc -l < .env) lines"
+chmod 600 .env 2>/dev/null && success ".env permissions locked (600 — owner read/write only)" || warn "Could not lock .env permissions"
 
 # ── Step 4: Verify Configuration ──────────────────────────────
 section "Step 4: Verifying configuration"
@@ -446,6 +447,8 @@ echo ""
 echo -e "${GREEN}${BOLD}╔═══════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}║   🧠  Noema Setup Complete!               ║${NC}"
 echo -e "${GREEN}${BOLD}╚═══════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  ${BOLD}Credentials stored in:${NC} ${CYAN}.env${NC} ${GREEN}(gitignored, chmod 600)${NC}"
 echo ""
 echo -e "  ${BOLD}Quick Start:${NC}"
 echo ""
