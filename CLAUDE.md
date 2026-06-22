@@ -3,7 +3,7 @@
 ## Project Identity
 - **Full Name:** Noema
 - **Version:** 1.0.0 (initial release)
-- **Repository:** https://github.com/ovalentine964/noema (private)
+- **Repository:** https://github.com/Valentinus295/noema (private)
 - **Owner:** Valentine (ovalentine964)
 - **Language:** Python 3.11+
 - **Build System:** Hatchling (pyproject.toml)
