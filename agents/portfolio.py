@@ -9,7 +9,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Any
 
-from vmpm.core.types import Direction
+from noema.core.types import Direction
 
 
 class PortfolioSetup:

@@ -1,4 +1,4 @@
-"""Candlestick pattern detection for VMPM.
+"""Candlestick pattern detection for Noema.
 
 Detects key reversal patterns for trade confirmation:
 - Bullish: Engulfing, Morning Star, Hammer, Tweezers

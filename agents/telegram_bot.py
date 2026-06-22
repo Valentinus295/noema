@@ -1,4 +1,4 @@
-"""Telegram control surface for VMPM.
+"""Telegram control surface for Noema.
 
 Provides remote control of the trading system via Telegram bot commands.
 Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env.
@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 
 
 class TelegramBot:
-    """Telegram bot for VMPM remote control."""
+    """Telegram bot for Noema remote control."""
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class TelegramBot:
     ) -> None:
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
-        self.shared_secret = shared_secret or os.getenv("VMPM_TELEGRAM_SHARED_SECRET", "")
+        self.shared_secret = shared_secret or os.getenv("Noema_TELEGRAM_SHARED_SECRET", "")
         self._bot: Any = None
         self._running = False
         self._handlers: dict[str, Callable] = {}
@@ -79,7 +79,7 @@ class TelegramBot:
             await self._bot.start()
             await self._bot.updater.start_polling()
 
-            await self.send_alert("✅ VMPM Telegram bot online")
+            await self.send_alert("✅ Noema Telegram bot online")
             logger.info("telegram_bot_started")
 
         except ImportError:

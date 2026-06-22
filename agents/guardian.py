@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from vmpm.core.types import Bias, Direction, Setup
+from noema.core.types import Bias, Direction, Setup
 
 
 @dataclass

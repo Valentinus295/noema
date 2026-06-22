@@ -1,4 +1,4 @@
-# VMPM Tech Stack Enterprise Evaluation
+# Noema Tech Stack Enterprise Evaluation
 
 **Date:** 2026-06-17  
 **Scope:** Can this tech stack run a multi-agent trading system at enterprise level?  
@@ -113,7 +113,7 @@ dependencies = [
 | Lazy evaluation | No | Yes |
 | Multi-threaded | No (GIL) | Yes (Rust) |
 
-### Why polars Matters for VMPM
+### Why polars Matters for Noema
 
 You analyze 5 pairs × 6 timeframes × 200 bars = 6,000 bars per cycle. With pandas, that's trivial. But when you scale to 28 pairs × 10 timeframes × 1000 bars (backtesting), polars becomes critical.
 
@@ -217,7 +217,7 @@ con.execute("""
 
 ### Why NOT TimescaleDB / QuestDB / InfluxDB
 
-These are purpose-built time-series databases. For VMPM's scale (5-28 pairs, ~100-500 trades/day max), they're overkill:
+These are purpose-built time-series databases. For Noema's scale (5-28 pairs, ~100-500 trades/day max), they're overkill:
 - Need a running server (ops overhead)
 - More complex backup/restore
 - SQLite + DuckDB handles the workload easily
@@ -294,7 +294,7 @@ class NATSMessageBus:
         await self._js.subscribe(
             subject,
             cb=_wrapper,
-            durable_name=f"vmpm_{subject.replace('.', '_')}",
+            durable_name=f"noema_{subject.replace('.', '_')}",
         )
 
 # Usage:
@@ -403,54 +403,54 @@ from prometheus_client import Counter, Gauge, Histogram, Summary
 
 # Trade metrics
 TRADES_TOTAL = Counter(
-    "vmpm_trades_total",
+    "noema_trades_total",
     "Total trades executed",
     ["symbol", "direction", "result"],  # labels: EURUSD, buy, win/loss
 )
 
 TRADE_PNL = Histogram(
-    "vmpm_trade_pnl_dollars",
+    "noema_trade_pnl_dollars",
     "Trade P&L distribution",
     ["symbol"],
     buckets=[-100, -50, -20, -10, -5, 0, 5, 10, 20, 50, 100],
 )
 
 OPEN_POSITIONS = Gauge(
-    "vmpm_open_positions",
+    "noema_open_positions",
     "Currently open positions",
     ["symbol"],
 )
 
 # Agent metrics
 AGENT_LATENCY = Histogram(
-    "vmpm_agent_latency_seconds",
+    "noema_agent_latency_seconds",
     "Agent analysis latency",
     ["agent_name"],
     buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
 AGENT_SIGNALS = Counter(
-    "vmpm_agent_signals_total",
+    "noema_agent_signals_total",
     "Agent signals generated",
     ["agent_name", "signal"],  # trend, BULLISH
 )
 
 # Kill-switch metrics
 KILLSWITCH_EVENTS = Counter(
-    "vmpm_killswitch_events_total",
+    "noema_killswitch_events_total",
     "Kill-switch activations",
     ["switch_name"],
 )
 
 # System metrics
 CYCLE_DURATION = Histogram(
-    "vmpm_cycle_duration_seconds",
+    "noema_cycle_duration_seconds",
     "Trading cycle duration",
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0],
 )
 
 BROKER_LATENCY = Histogram(
-    "vmpm_broker_latency_seconds",
+    "noema_broker_latency_seconds",
     "Broker API latency",
     ["operation"],  # order_send, positions_get, etc.
 )
@@ -459,24 +459,24 @@ BROKER_LATENCY = Histogram(
 ### Grafana Dashboard
 
 ```yaml
-# dashboards/vmpm.json — key panels
+# dashboards/noema.json — key panels
 panels:
   - title: "P&L Over Time"
-    query: sum(vmpm_trade_pnl_dollars_sum) by (symbol)
+    query: sum(noema_trade_pnl_dollars_sum) by (symbol)
     
   - title: "Win Rate (Rolling 50)"
     query: |
-      sum(rate(vmpm_trades_total{result="win"}[50])) 
-      / sum(rate(vmpm_trades_total[50]))
+      sum(rate(noema_trades_total{result="win"}[50])) 
+      / sum(rate(noema_trades_total[50]))
     
   - title: "Agent Latency p99"
-    query: histogram_quantile(0.99, vmpm_agent_latency_seconds)
+    query: histogram_quantile(0.99, noema_agent_latency_seconds)
     
   - title: "Kill-Switch Events"
-    query: sum(rate(vmpm_killswitch_events_total[1h])) by (switch_name)
+    query: sum(rate(noema_killswitch_events_total[1h])) by (switch_name)
     
   - title: "Cycle Duration"
-    query: histogram_quantile(0.95, vmpm_cycle_duration_seconds)
+    query: histogram_quantile(0.95, noema_cycle_duration_seconds)
 ```
 
 **Verdict:** Install prometheus-client. Add metrics from day one. Grafana dashboard before live trading.
@@ -488,9 +488,9 @@ panels:
 **Current:** None installed  
 **Declared:** scipy, statsmodels, arch, scikit-learn
 
-### What Each Does for VMPM
+### What Each Does for Noema
 
-| Library | Version | VMPM Use Case | Priority |
+| Library | Version | Noema Use Case | Priority |
 |---|---|---|---|
 | **scipy** | ≥1.14 | Hypothesis testing (SPRT), optimization, distributions | P0 — kill-switches need this |
 | **statsmodels** | ≥0.14 | ARIMA, cointegration tests, ADF, Hurst exponent | P1 — regime detection |
@@ -527,7 +527,7 @@ No Docker, no systemd, no CI/CD. Manual deployment.
 │                    Production Host                     │
 │                                                       │
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐ │
-│  │  VMPM Main   │  │  Watchdog   │  │  LiteLLM     │ │
+│  │  Noema Main   │  │  Watchdog   │  │  LiteLLM     │ │
 │  │  Process     │  │  Process    │  │  Proxy       │ │
 │  │  (systemd)   │  │  (systemd)  │  │  (systemd)   │ │
 │  └──────┬───────┘  └──────┬──────┘  └──────────────┘ │
@@ -547,36 +547,36 @@ No Docker, no systemd, no CI/CD. Manual deployment.
 ### systemd Units
 
 ```ini
-# /etc/systemd/system/vmpm.service
+# /etc/systemd/system/noema.service
 [Unit]
-Description=VMPM Trading System
+Description=Noema Trading System
 After=network.target nats.service mt5linux.service
 Requires=nats.service
 
 [Service]
 Type=notify
 User=valentinetech
-WorkingDirectory=/home/valentinetech/vmpm
-ExecStart=/home/valentinetech/vmpm/.venv/bin/python -m vmpm.main --mode live
+WorkingDirectory=/home/valentinetech/noema
+ExecStart=/home/valentinetech/noema/.venv/bin/python -m noema.main --mode live
 ExecStop=/bin/kill -SIGTERM $MAINPID
 Restart=on-failure
 RestartSec=5
 WatchdogSec=30
-Environment=VMPM_MODE=live
+Environment=Noema_MODE=live
 
 [Install]
 WantedBy=multi-user.target
 
-# /etc/systemd/system/vmpm-watchdog.service
+# /etc/systemd/system/noema-watchdog.service
 [Unit]
-Description=VMPM Watchdog
-After=vmpm.service
-BindsTo=vmpm.service
+Description=Noema Watchdog
+After=noema.service
+BindsTo=noema.service
 
 [Service]
 Type=simple
 User=valentinetech
-ExecStart=/home/valentinetech/vmpm/.venv/bin/python scripts/watchdog.py
+ExecStart=/home/valentinetech/noema/.venv/bin/python scripts/watchdog.py
 Restart=always
 RestartSec=10
 
@@ -594,7 +594,7 @@ COPY pyproject.toml uv.lock ./
 RUN pip install uv && uv sync --frozen --no-dev
 
 COPY . .
-CMD ["python", "-m", "vmpm.main", "--mode", "live"]
+CMD ["python", "-m", "noema.main", "--mode", "live"]
 ```
 
 **Verdict:** systemd for production (simpler, better for single-host). Docker for development/testing.
@@ -607,7 +607,7 @@ CMD ["python", "-m", "vmpm.main", "--mode", "live"]
 
 ### NautilusTrader Assessment
 
-| Aspect | NautilusTrader | VMPM Custom |
+| Aspect | NautilusTrader | Noema Custom |
 |---|---|---|
 | **Language** | Python + Cython (C-speed) | Pure Python |
 | **Latency** | ~10μs order path | ~1-5ms order path |
@@ -628,7 +628,7 @@ CMD ["python", "-m", "vmpm.main", "--mode", "live"]
 - You plan to expand beyond FX
 - You have 3-6 months to learn it
 
-**Use custom VMPM if:**
+**Use custom Noema if:**
 - You need 1-5ms latency (acceptable for swing/position trading)
 - You want full control over agent architecture
 - You're FX-only for now
@@ -636,7 +636,7 @@ CMD ["python", "-m", "vmpm.main", "--mode", "live"]
 
 ### Recommendation
 
-**For v0.1-v1.0: Custom VMPM.** Your multi-agent architecture (Hermes-style) is not something NautilusTrader provides. NautilusTrader is a trading framework, not an agent framework. You'd still need to build the agent orchestration, LLM integration, and Telegram control surface on top of it.
+**For v0.1-v1.0: Custom Noema.** Your multi-agent architecture (Hermes-style) is not something NautilusTrader provides. NautilusTrader is a trading framework, not an agent framework. You'd still need to build the agent orchestration, LLM integration, and Telegram control surface on top of it.
 
 **For v2.0+: Consider NautilusTrader as the execution layer** underneath your agents. Use it for order management, position tracking, and backtesting. Keep your agent layer on top.
 
@@ -654,7 +654,7 @@ CMD ["python", "-m", "vmpm.main", "--mode", "live"]
 
 ```toml
 [project]
-name = "vmpm"
+name = "noema"
 version = "1.0.0"
 requires-python = ">=3.11,<3.14"
 
@@ -754,7 +754,7 @@ For enterprise-grade trading, here are the latency targets:
 ```python
 # tests/benchmark_cycle.py
 import pytest
-from vmpm.core.trading_loop import TradingLoop
+from noema.core.trading_loop import TradingLoop
 
 @pytest.mark.benchmark
 def test_cycle_latency(benchmark, trading_loop, sample_context):

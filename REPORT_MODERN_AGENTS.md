@@ -1,7 +1,7 @@
-# Modern AI Agent Architectures: A Research Report for VMPM
+# Modern AI Agent Architectures: A Research Report for Noema
 
 **Date:** 2026-06-17
-**Purpose:** Study how the most successful agentic systems (2025-2026) are architected, extract design patterns, and recommend how to align VMPM with these proven approaches.
+**Purpose:** Study how the most successful agentic systems (2025-2026) are architected, extract design patterns, and recommend how to align Noema with these proven approaches.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [How Modern Agentic Systems Actually Work](#1-how-modern-agentic-systems-actually-work)
 2. [Extracted Design Patterns](#2-extracted-design-patterns)
 3. [NVIDIA NIM Specific Integration](#3-nvidia-nim-specific-integration)
-4. [Recommended Architecture for VMPM](#4-recommended-architecture-for-vmpm)
+4. [Recommended Architecture for Noema](#4-recommended-architecture-for-noema)
 5. [Performance Optimization for Trading](#5-performance-optimization-for-trading)
 
 ---
@@ -61,7 +61,7 @@ OpenClaw is an open-source autonomous AI agent framework that gained 100K GitHub
 - **Input sanitization**: External content treated as untrusted
 - **No self-replication**: Agents cannot modify their own prompts or safety rules
 
-**Key Insight for VMPM:** OpenClaw demonstrates that production agents need (1) clear tool interfaces with schema enforcement, (2) hierarchical delegation with automatic result propagation, (3) persistent memory across sessions, and (4) hard safety guardrails that cannot be overridden.
+**Key Insight for Noema:** OpenClaw demonstrates that production agents need (1) clear tool interfaces with schema enforcement, (2) hierarchical delegation with automatic result propagation, (3) persistent memory across sessions, and (4) hard safety guardrails that cannot be overridden.
 
 *Source: [Towards AI — OpenClaw Architecture Deep Dive, Feb 2026](https://pub.towardsai.net/openclaw-architecture-deep-dive-building-production-ready-ai-agents-from-scratch-e693c1002ae8); [VisionClaw arXiv, Apr 2026](https://arxiv.org/html/2604.03486v2)*
 
@@ -111,7 +111,7 @@ From the 2026 source-code taxonomy ([arXiv:2604.03515](https://arxiv.org/html/26
 - **Self-correction** — the agent reads error messages and adjusts its approach
 - **Human-in-the-loop** — agent stops and asks for clarification when stuck
 
-**Key Insight for VMPM:** Coding agents converge on a simple but powerful pattern: a ReAct loop with typed tool calls, context management, and self-correction. The loop itself is trivial — the sophistication is in the tool definitions and context strategy.
+**Key Insight for Noema:** Coding agents converge on a simple but powerful pattern: a ReAct loop with typed tool calls, context management, and self-correction. The loop itself is trivial — the sophistication is in the tool definitions and context strategy.
 
 *Source: [Inside the Scaffold: A Source-Code Taxonomy of Coding Agent Architectures, Apr 2026](https://arxiv.org/html/2604.03515v1); [Anthropic — Measuring Agent Autonomy, Feb 2026](https://www.anthropic.com/research/measuring-agent-autonomy); [How Claude Code is Built — Pragmatic Engineer, Sep 2025](https://newsletter.pragmaticengineer.com/p/how-claude-code-is-built)*
 
@@ -206,7 +206,7 @@ while not task_complete:
 **How This Maps to a Trading Decision Loop:**
 
 ```python
-# VMPM Trading Agent Loop
+# Noema Trading Agent Loop
 class TradingAgentLoop:
     async def run(self, symbol: str) -> TradeDecision:
         # OBSERVE: Current market state
@@ -240,7 +240,7 @@ class TradingAgentLoop:
         return analysis.decision
 ```
 
-**Implementation in Python for VMPM:**
+**Implementation in Python for Noema:**
 
 ```python
 from abc import ABC, abstractmethod
@@ -248,7 +248,7 @@ from pydantic import BaseModel
 from typing import Any
 
 class AgentLoop(ABC):
-    """Modern agent loop for VMPM agents."""
+    """Modern agent loop for Noema agents."""
     
     def __init__(self, llm_client, tools: list[Tool], memory: Memory):
         self.llm = llm_client
@@ -315,10 +315,10 @@ class Tool:
 
 The LLM receives tool definitions as part of the system prompt and uses **function calling** to invoke them. The key insight: **the quality of tool descriptions directly determines agent performance**. A vague description leads to misuse; a precise description leads to correct invocation.
 
-**How This Maps to VMPM:**
+**How This Maps to Noema:**
 
 ```python
-# VMPM Trading Tools
+# Noema Trading Tools
 tools = [
     Tool(
         name="get_ohlcv",
@@ -382,7 +382,7 @@ Modern agents **never trust free-text LLM output for critical decisions**. They 
 3. **Pydantic Validation**: Parse LLM output into Pydantic models; reject if validation fails
 4. **Retry on Invalid**: If output doesn't match schema, retry with error feedback
 
-**Pydantic Model Validation for VMPM:**
+**Pydantic Model Validation for Noema:**
 
 ```python
 from pydantic import BaseModel, Field, validator
@@ -444,7 +444,7 @@ The 2026 source-code taxonomy identified **seven distinct context compaction str
 - Market regime classifications
 - Agent performance metrics
 
-**Context Window Strategy for VMPM:**
+**Context Window Strategy for Noema:**
 
 ```python
 class TradingContextManager:
@@ -518,12 +518,12 @@ Agent A → [Blackboard/Event Bus] → Agent B → [Blackboard] → Agent C
 ```
 Agents read from and write to a shared state store. Each agent processes the shared state and updates it.
 
-**How This Maps to VMPM's 17-Agent Pipeline:**
+**How This Maps to Noema's 17-Agent Pipeline:**
 
-VMPM currently uses a **pipeline pattern** (agents run sequentially). The modern approach would be a **hybrid**:
+Noema currently uses a **pipeline pattern** (agents run sequentially). The modern approach would be a **hybrid**:
 
 ```python
-# VMPM Modern Multi-Agent Architecture
+# Noema Modern Multi-Agent Architecture
 
 # Layer 1: Data Collection Agents (run in parallel)
 data_agents = [
@@ -874,7 +874,7 @@ rails:
 
 ---
 
-## 4. Recommended Architecture for VMPM (Modern Agentic Style)
+## 4. Recommended Architecture for Noema (Modern Agentic Style)
 
 ### 4.1 The Modern Agent Loop for Trading
 
@@ -892,7 +892,7 @@ OBSERVE (market data, news, positions, account state)
 
 This is the **OODA + Reflexion** pattern, specifically adapted for trading.
 
-### 4.2 How to Structure Each VMPM Agent as a Modern Agent
+### 4.2 How to Structure Each Noema Agent as a Modern Agent
 
 **Every agent should have:**
 1. **Goal**: What this agent is trying to achieve (system prompt)
@@ -913,7 +913,7 @@ from pydantic import BaseModel
 from typing import Any
 
 class ModernAgent(ABC):
-    """Base class for modern VMPM agents."""
+    """Base class for modern Noema agents."""
     
     name: str
     role: str
@@ -1064,7 +1064,7 @@ class DecisionCache:
 
 **Package Structure:**
 ```
-vmpm/
+noema/
 ├── agents/
 │   ├── base.py              # ModernAgent base class with agent loop
 │   ├── tools.py             # Tool definitions and registry
@@ -1162,7 +1162,7 @@ class AgentConfig(BaseModel):
     retry_attempts: int = 3
     cache_ttl_seconds: int = 60
 
-class VMPMConfig(BaseModel):
+class NoemaConfig(BaseModel):
     broker: BrokerConfig
     nim: NIMConfig
     agents: dict[str, AgentConfig]

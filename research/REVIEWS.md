@@ -18,7 +18,7 @@ in this commit; the resolution mapping is below.
 | Live-mode default | Major | Mode + `--live` + interactive confirm (`docs/ARCHITECTURE.md §13`) |
 | mt5linux supply-chain | Major | Will vendor wheel + pin sha256 in `uv.lock` |
 | RPyC RCE history | Major | `rpyc>=6.0` pinned; `docs/ARCHITECTURE.md §12` |
-| Telegram weak auth | Minor | `VMPM_TELEGRAM_SHARED_SECRET` required on commands |
+| Telegram weak auth | Minor | `Noema_TELEGRAM_SHARED_SECRET` required on commands |
 | Log rotation | Minor | `RotatingFileHandler` mandated in `docs/SECURITY.md` |
 | Journal at rest | Minor | LUKS + no cloud sync (`docs/SECURITY.md`) |
 | LiteLLM multi-user | Minor | Documented |

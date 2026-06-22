@@ -10,9 +10,9 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.modern_agent import LLMAgent, AgentReport, AgentType
-from vmpm.core.nim_client import NIMClient, ModelTier
-from vmpm.models.schemas import DevilsAdvocate as DevilsAdvocateSchema
+from noema.core.modern_agent import LLMAgent, AgentReport, AgentType
+from noema.core.nim_client import NIMClient, ModelTier
+from noema.models.schemas import DevilsAdvocate as DevilsAdvocateSchema
 
 logger = structlog.get_logger(__name__)
 

@@ -1,7 +1,7 @@
 [project]
-name = "vmpm"
+name = "noema"
 version = "0.1.0"
-description = "Valentine Money Printing Machine — multi-agent FX trading on MT5"
+description = "Noema — multi-agent FX trading on MT5"
 authors = [{ name = "Valentine", email = "ovalentine964@example.com" }]
 requires-python = ">=3.11,<3.14"
 readme = "README.md"
@@ -61,8 +61,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# Code lives at repo root, not in a vmpm/ package dir
-# packages = ["vmpm"]
+# Code lives at repo root, not in a noema/ package dir
+# packages = ["noema"]
 
 [tool.ruff]
 line-length = 100

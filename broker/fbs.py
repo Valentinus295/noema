@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 import structlog
 
-from vmpm.broker.base import BrokerBase, OrderResult, Position
+from noema.broker.base import BrokerBase, OrderResult, Position
 
 logger = structlog.get_logger(__name__)
 
@@ -64,7 +64,7 @@ class FBSBroker(BrokerBase):
     def get_rates(self, symbol: str, timeframe: str, count: int = 100) -> Any:
         if not self._connected:
             return None
-        from vmpm.broker.mt5 import TIMEFRAME_MAP
+        from noema.broker.mt5 import TIMEFRAME_MAP
         tf_attr = TIMEFRAME_MAP.get(timeframe.upper())
         if not tf_attr:
             return None
@@ -79,7 +79,7 @@ class FBSBroker(BrokerBase):
 
     def place_order(
         self, symbol: str, direction: str, volume: float,
-        sl: float = 0, tp: float = 0, magic: int = 0, comment: str = "VMPM-FBS"
+        sl: float = 0, tp: float = 0, magic: int = 0, comment: str = "Noema-FBS"
     ) -> OrderResult:
         if not self._connected:
             return OrderResult(success=False, error="Not connected")
@@ -136,7 +136,7 @@ class FBSBroker(BrokerBase):
             "action": self._mt5.TRADE_ACTION_DEAL, "symbol": pos.symbol,
             "volume": pos.volume, "type": close_type, "position": ticket,
             "price": price, "deviation": 20, "magic": pos.magic,
-            "comment": "VMPM-FBS Close",
+            "comment": "Noema-FBS Close",
             "type_time": self._mt5.ORDER_TIME_GTC,
             "type_filling": self._mt5.ORDER_FILLING_IOC,
         }

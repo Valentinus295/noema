@@ -1,8 +1,8 @@
-# VMPM Swarm Research Outputs — full record for review
+# Noema Swarm Research Outputs — full record for review
 
 This file consolidates all 8 swarm research agents' verbatim outputs.
 Engineering team uses this as the source-of-truth for which curriculum
-concept maps to which VMPM component. Nothing here is code yet —
+concept maps to which Noema component. Nothing here is code yet —
 this is the design brief that security + quality must sign off on.
 
 ---
@@ -65,7 +65,7 @@ power analysis, SPRT online edge monitor, paired t retest-vs-breakout.
 1. **PCA factor exposure** — kills correlated double-bets across pairs.
 2. **Currency-strength PCA** — picks the right pair, not the first one screened.
 3. **K-means/GMM regime classifier** — kill switch for chop.
-4. **Mahalanobis overextension invalidator** — drops into VMPM's existing invalidation list.
+4. **Mahalanobis overextension invalidator** — drops into Noema's existing invalidation list.
 5. **Hierarchical correlation clustering** — portfolio-level risk cap before any single trade fires.
 
 Deferred (P1+): GMM soft-regime sizing, LDA bounce-vs-continuation classifier, factor analysis. Rejected: multivariate-normality tests on returns, biplots, candlestick clustering.
@@ -100,7 +100,7 @@ Other P0s: LP position sizing across N concurrent setups; Cp/Cpk on R-multiple; 
 
 ## Agent 7 — Architecture
 
-24 files under `~/vmpm/`. 10 agents (RetestAgent merged into StructureAgent).
+24 files under `~/noema/`. 10 agents (RetestAgent merged into StructureAgent).
 Event-driven backtest (not vectorized) for path-dependent fidelity with live.
 Single asyncio loop; MT5 calls behind executor (blocking API).
 Cadence: per-tick = Guardian + Execution only; per-M15-close = full agent chain;

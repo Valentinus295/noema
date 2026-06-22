@@ -15,13 +15,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from vmpm.core.agent import Agent, AgentReport, AgentState
-from vmpm.core.config import (
-    VMPMConfig, BrokerConfig, RiskConfig, TradingConfig,
+from noema.core.agent import Agent, AgentReport, AgentState
+from noema.core.config import (
+    NoemaConfig, BrokerConfig, RiskConfig, TradingConfig,
     EconometricsConfig, load_config,
 )
-from vmpm.core.message_bus import MessageBus, Message
-from vmpm.core.state_machine import (
+from noema.core.message_bus import MessageBus, Message
+from noema.core.state_machine import (
     TradingPipeline, PipelineState, PhaseResult,
 )
 
@@ -500,12 +500,12 @@ class TestTradingPipeline:
 # ===========================================================================
 
 
-class TestVMPMConfig:
-    """Tests for VMPM configuration."""
+class TestNoemaConfig:
+    """Tests for Noema configuration."""
 
     def test_default_config(self):
         """Default config should have sensible trading parameters."""
-        config = VMPMConfig()
+        config = NoemaConfig()
         assert config.broker.type == "paper"
         assert config.risk.risk_per_trade == 0.01
         assert config.risk.max_daily_loss == 0.03
@@ -536,7 +536,7 @@ class TestVMPMConfig:
 
     def test_custom_config_overrides(self):
         """Custom config should override defaults."""
-        config = VMPMConfig(
+        config = NoemaConfig(
             broker=BrokerConfig(type="mt5", mt5_login=12345),
             risk=RiskConfig(risk_per_trade=0.02, max_open_trades=3),
         )
@@ -575,7 +575,7 @@ class TestVMPMConfig:
 
     def test_config_dataclass_types(self):
         """Config should use proper types for all fields."""
-        config = VMPMConfig()
+        config = NoemaConfig()
         assert isinstance(config.broker, BrokerConfig)
         assert isinstance(config.risk, RiskConfig)
         assert isinstance(config.trading, TradingConfig)

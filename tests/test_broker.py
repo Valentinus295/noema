@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from vmpm.broker.base import BrokerBase, OrderResult, Position
-from vmpm.broker.paper import PaperBroker
+from noema.broker.base import BrokerBase, OrderResult, Position
+from noema.broker.paper import PaperBroker
 
 
 # ===========================================================================

@@ -13,13 +13,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from vmpm.core.types import Bar, Bias, Direction, Setup, Verdict
-from vmpm.agents.trend import analyze_trend
-from vmpm.agents.structure import analyze_structure
-from vmpm.agents.confluence import ConfluenceState, conflate
-from vmpm.agents.risk import RiskParams, compute_sl_tp, compute_position_size
-from vmpm.agents.guardian import GuardianState, guardian_guard
-from vmpm.broker.base import BrokerProtocol, OrderRequest
+from noema.core.types import Bar, Bias, Direction, Setup, Verdict
+from noema.agents.trend import analyze_trend
+from noema.agents.structure import analyze_structure
+from noema.agents.confluence import ConfluenceState, conflate
+from noema.agents.risk import RiskParams, compute_sl_tp, compute_position_size
+from noema.agents.guardian import GuardianState, guardian_guard
+from noema.broker.base import BrokerProtocol, OrderRequest
 
 
 @dataclass
@@ -96,7 +96,7 @@ class Orchestrator:
             price=None,
             sl=sl,
             tp=tp,
-            comment=f"VMPM {hashlib.md5(str(setup).encode()).hexdigest()[:8]}",
+            comment=f"Noema {hashlib.md5(str(setup).encode()).hexdigest()[:8]}",
         )
 
         await self.broker.send_order(order)

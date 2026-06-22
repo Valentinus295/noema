@@ -1,4 +1,4 @@
-"""Async message bus for inter-agent communication in VMPM.
+"""Async message bus for inter-agent communication in Noema.
 
 Agents publish and subscribe to topics. The bus routes messages
 to all registered handlers for a given topic.

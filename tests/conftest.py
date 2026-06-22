@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for VMPM test suite."""
+"""Shared fixtures and helpers for Noema test suite."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from vmpm.core.config import VMPMConfig, BrokerConfig, RiskConfig, TradingConfig
+from noema.core.config import NoemaConfig, BrokerConfig, RiskConfig, TradingConfig
 
 
 # ---------------------------------------------------------------------------
@@ -17,9 +17,9 @@ from vmpm.core.config import VMPMConfig, BrokerConfig, RiskConfig, TradingConfig
 
 
 @pytest.fixture
-def default_config() -> VMPMConfig:
-    """Return a default VMPMConfig for testing."""
-    return VMPMConfig(
+def default_config() -> NoemaConfig:
+    """Return a default NoemaConfig for testing."""
+    return NoemaConfig(
         broker=BrokerConfig(type="paper"),
         risk=RiskConfig(
             risk_per_trade=0.01,
@@ -151,7 +151,7 @@ def agent_reports() -> dict[str, dict[str, Any]]:
 @pytest.fixture
 def mock_message_bus():
     """A simple mock message bus for agent tests."""
-    from vmpm.core.message_bus import MessageBus
+    from noema.core.message_bus import MessageBus
 
     class MockMessageBus(MessageBus):
         """Mock bus that doesn't start background tasks."""

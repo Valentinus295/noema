@@ -1,14 +1,14 @@
-# Contributing to VMPM
+# Contributing to Noema
 
-Thank you for your interest in contributing to the Valentine Money Printing Machine! 🤖
+Thank you for your interest in contributing to the Noema! 🤖
 
 ## How to Contribute
 
 ### 1. Fork the Repository
 
 ```bash
-git clone https://github.com/ovalentine964/valentine-money-printing-machine.git
-cd valentine-money-printing-machine
+git clone https://github.com/ovalentine964/noema.git
+cd noema
 ```
 
 ### 2. Create a Feature Branch
@@ -28,7 +28,7 @@ git checkout -b feature/amazing-feature
 ```bash
 pytest
 ruff check .
-mypy vmpm/
+mypy noema/
 ```
 
 ### 5. Commit Your Changes
@@ -72,4 +72,4 @@ Open an issue on GitHub!
 
 ---
 
-Thank you for helping make VMPM better! 🚀
+Thank you for helping make Noema better! 🚀

@@ -16,13 +16,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from vmpm.analysis.fundamental import (
+from noema.analysis.fundamental import (
     FundamentalAnalyzer, FundamentalBias, EconomicEvent, ImpactLevel,
 )
-from vmpm.analysis.technical import TechnicalAnalyzer, TechnicalReport
-from vmpm.analysis.smc import SMCForecaster, OrderBlock, FairValueGap, LiquiditySweep
-from vmpm.analysis.candlestick import CandlestickDetector, CandlestickPattern
-from vmpm.analysis.econometrics import EconometricsEngine, MarketRegime
+from noema.analysis.technical import TechnicalAnalyzer, TechnicalReport
+from noema.analysis.smc import SMCForecaster, OrderBlock, FairValueGap, LiquiditySweep
+from noema.analysis.candlestick import CandlestickDetector, CandlestickPattern
+from noema.analysis.econometrics import EconometricsEngine, MarketRegime
 
 
 # ===========================================================================

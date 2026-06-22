@@ -1,15 +1,15 @@
-# VMPM Architecture & Tech Stack Analysis Report
+# Noema Architecture & Tech Stack Analysis Report
 
 **Date:** 2026-06-17
 **Analyst:** Architecture Analysis Agent
-**Repository:** valentine-money-printing-machine (v0.1.0)
+**Repository:** noema (v0.1.0)
 **Codebase:** ~6,700 lines Python across 40+ source files
 
 ---
 
 ## Executive Summary
 
-VMPM is a well-conceived multi-agent forex trading system with strong domain modeling rooted in ICT-style Smart Money Concepts and institutional-grade econometrics. The architecture shows evidence of thoughtful review iterations (quality review, security review) documented in `docs/ARCHITECTURE.md`. However, there is a **critical disconnect** between the two competing architecture documents, the code contains **two parallel implementations** that don't converge, and there are **zero tests** in a system that manages real money. This report identifies 23 specific findings and provides actionable recommendations organized by severity.
+Noema is a well-conceived multi-agent forex trading system with strong domain modeling rooted in ICT-style Smart Money Concepts and institutional-grade econometrics. The architecture shows evidence of thoughtful review iterations (quality review, security review) documented in `docs/ARCHITECTURE.md`. However, there is a **critical disconnect** between the two competing architecture documents, the code contains **two parallel implementations** that don't converge, and there are **zero tests** in a system that manages real money. This report identifies 23 specific findings and provides actionable recommendations organized by severity.
 
 ---
 
@@ -57,7 +57,7 @@ VMPM is a well-conceived multi-agent forex trading system with strong domain mod
 **Assessment:** Well-designed but misaligned with the actual pipeline execution.
 
 - **Positive:** Clean enum-based states, explicit transition table, proper rejection/reset flow, and audit trail via `_history`.
-- **Issue 1 — Not used in main.py:** The `TradingPipeline` is instantiated in `VMPMOrchestrator.__init__()` but `main.py`'s `_analyze_pair()` calls `self.pipeline.advance(report=None)` — passing `None` instead of a `PhaseResult`. The pipeline's `advance()` method expects a `PhaseResult` and would fail on `None` (AttributeError on `result.success`). This means the state machine is effectively dead code in the current orchestrator.
+- **Issue 1 — Not used in main.py:** The `TradingPipeline` is instantiated in `NoemaOrchestrator.__init__()` but `main.py`'s `_analyze_pair()` calls `self.pipeline.advance(report=None)` — passing `None` instead of a `PhaseResult`. The pipeline's `advance()` method expects a `PhaseResult` and would fail on `None` (AttributeError on `result.success`). This means the state machine is effectively dead code in the current orchestrator.
 - **Issue 2 — Linear-only transitions:** The transition table allows `RSI_CONFIRMATION → WAITING_FOR_PRICE` (good, for re-waiting), but the actual pipeline in `main.py` runs agents sequentially without checking state. If the state machine were active, a rejection at any phase would halt the pipeline, but `main.py` doesn't check for rejections between phases.
 - **Issue 3 — No concurrent pair support:** The state machine is per-pipeline, but the system analyzes 5-7 pairs. Each pair needs its own pipeline state, but only one `TradingPipeline` instance exists.
 
@@ -103,7 +103,7 @@ MT5 bars → TrendAgent → ConfluenceAgent → PortfolioAgent → RiskAgent →
 
 - `polars>=1.10` is declared as a dependency but **never imported anywhere in the codebase**. All data manipulation uses `pandas` (via `pd.DataFrame`) and `numpy`.
 - `pyarrow>=17.0` is a polars dependency, also unused directly.
-- `duckdb>=1.1` is declared but **never imported**. The database layer uses SQLAlchemy with SQLite (`sqlite+aiosqlite:///vmpm.db`).
+- `duckdb>=1.1` is declared but **never imported**. The database layer uses SQLAlchemy with SQLite (`sqlite+aiosqlite:///noema.db`).
 - The `analysis/econometrics.py` and `analysis/technical.py` modules use `pandas` exclusively.
 - The `database/` module uses SQLAlchemy ORM with SQLite.
 
@@ -159,7 +159,7 @@ The codebase has **two independent configuration systems:**
 1. **`core/config.py`** — Uses dataclasses + YAML + manual field-by-field override + env var parsing. Loads `config/default.yaml`. Used by `main.py`.
 2. **`core/settings.py`** — Uses Pydantic `BaseModel` + YAML. Loads `config/settings.yaml`. Used by `agents/orchestrator.py` and the 7-agent system.
 
-These are different files with different schemas. `config/settings.yaml` exists and is comprehensive (guardian, backtest, confluence, portfolio sections). `config/default.yaml` does not exist (the loader falls back to `VMPMConfig()` defaults). This means:
+These are different files with different schemas. `config/settings.yaml` exists and is comprehensive (guardian, backtest, confluence, portfolio sections). `config/default.yaml` does not exist (the loader falls back to `NoemaConfig()` defaults). This means:
 - `main.py` uses hardcoded defaults, ignoring `settings.yaml`.
 - The 7-agent system uses `settings.yaml` but isn't wired into `main.py`.
 
@@ -363,7 +363,7 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy vmpm/ --ignore-missing-imports
+      - run: uv run mypy noema/ --ignore-missing-imports
 
   test:
     runs-on: ubuntu-latest
@@ -371,7 +371,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
       - run: uv sync --extra dev
-      - run: uv run pytest tests/ -v --cov=vmpm --cov-report=xml
+      - run: uv run pytest tests/ -v --cov=noema --cov-report=xml
 
   security:
     runs-on: ubuntu-latest
@@ -389,11 +389,11 @@ jobs:
 **Recommendations:**
 
 1. **Prometheus metrics (implement):**
-   - `vmpm_trades_total{symbol, direction, outcome}` — trade counter
-   - `vmpm_pnl_dollars{symbol}` — running P&L
-   - `vmpm_agent_latency_seconds{agent}` — per-agent processing time
-   - `vmpm_pipeline_state{state}` — current pipeline state per pair
-   - `vmpm_guardian_heartbeat_age_seconds` — time since last guardian heartbeat
+   - `noema_trades_total{symbol, direction, outcome}` — trade counter
+   - `noema_pnl_dollars{symbol}` — running P&L
+   - `noema_agent_latency_seconds{agent}` — per-agent processing time
+   - `noema_pipeline_state{state}` — current pipeline state per pair
+   - `noema_guardian_heartbeat_age_seconds` — time since last guardian heartbeat
 
 2. **Structured logging (already done):**
    - The logging event taxonomy in `docs/ARCHITECTURE.md` §8 is well-defined.
@@ -428,7 +428,7 @@ jobs:
 
 **Current structure:**
 ```
-vmpm/
+noema/
 ├── agents/          # 17 agent files + __init__.py
 ├── analysis/        # 5 analysis modules
 ├── broker/          # base, mt5, paper, fbs
@@ -449,11 +449,11 @@ vmpm/
 2. `analysis/` and `indicators/` overlap (technical analysis in both).
 3. `models/` has `knowledge.py`, `position.py`, `trade.py` — but `database/models.py` also has `TradeRecord`. Two trade model systems.
 4. `agents/__init__.py` exports all 17 agents. After consolidation, this needs cleanup.
-5. No `vmpm/` package directory — files are at the repo root, which means `from vmpm.core.agent import Agent` only works if the repo root is in `sys.path`.
+5. No `noema/` package directory — files are at the repo root, which means `from noema.core.agent import Agent` only works if the repo root is in `sys.path`.
 
 **Recommended structure (post-consolidation):**
 ```
-vmpm/
+noema/
 ├── __init__.py
 ├── __main__.py              # CLI entry point (replaces main.py)
 ├── agents/
@@ -529,16 +529,16 @@ This already partially exists in `docs/ARCHITECTURE.md` §9 but is not implement
 **Recommendation: Unify into a single Pydantic-settings system.**
 
 ```python
-# vmpm/settings.py
+# noema/settings.py
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
 class Settings(BaseSettings):
-    """Single source of truth for all VMPM configuration."""
+    """Single source of truth for all Noema configuration."""
     
     model_config = SettingsConfigDict(
         yaml_file="config/settings.yaml",
-        env_prefix="VMPM_",
+        env_prefix="Noema_",
         env_file=".env",
     )
     

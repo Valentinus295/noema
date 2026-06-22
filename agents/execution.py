@@ -9,7 +9,7 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
@@ -78,7 +78,7 @@ class ExecutionAgent(DeterministicAgent):
                 "tp": tp,
                 "deviation": 20,
                 "magic": magic,
-                "comment": "VMPM",
+                "comment": "Noema",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }

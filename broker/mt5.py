@@ -1,4 +1,4 @@
-"""MetaTrader 5 broker implementation for VMPM.
+"""MetaTrader 5 broker implementation for Noema.
 
 Requires: Windows OS, MT5 terminal running, MetaTrader5 Python package.
 Compatible with FX Pesa, FBS, and any MT5 broker.
@@ -12,7 +12,7 @@ from typing import Any
 
 import structlog
 
-from vmpm.broker.base import BrokerBase, OrderResult, Position
+from noema.broker.base import BrokerBase, OrderResult, Position
 
 logger = structlog.get_logger(__name__)
 
@@ -135,7 +135,7 @@ class MT5Broker(BrokerBase):
 
     def place_order(
         self, symbol: str, direction: str, volume: float,
-        sl: float = 0, tp: float = 0, magic: int = 0, comment: str = "VMPM"
+        sl: float = 0, tp: float = 0, magic: int = 0, comment: str = "Noema"
     ) -> OrderResult:
         """Place a market order on MT5."""
         if not self._connected:
@@ -252,7 +252,7 @@ class MT5Broker(BrokerBase):
             "price": price,
             "deviation": 20,
             "magic": pos.magic,
-            "comment": "VMPM Close",
+            "comment": "Noema Close",
             "type_time": self._mt5.ORDER_TIME_GTC,
             "type_filling": self._mt5.ORDER_FILLING_IOC,
         }

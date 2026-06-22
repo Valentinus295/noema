@@ -1,4 +1,4 @@
-"""Trading pipeline state machine for VMPM.
+"""Trading pipeline state machine for Noema.
 
 Implements the 12-phase trading pipeline as a state machine.
 Each phase must complete before advancing to the next.
@@ -73,7 +73,7 @@ class PhaseResult:
 
 
 class TradingPipeline:
-    """State machine orchestrating the 12-phase VMPM trading pipeline.
+    """State machine orchestrating the 12-phase Noema trading pipeline.
 
     Usage:
         pipeline = TradingPipeline()

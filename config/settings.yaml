@@ -1,5 +1,5 @@
-# VMPM strategy knobs. Per-symbol overrides live in symbols.yaml.
-# All knobs overridable by env vars prefixed VMPM_ (see core/settings.py).
+# Noema strategy knobs. Per-symbol overrides live in symbols.yaml.
+# All knobs overridable by env vars prefixed Noema_ (see core/settings.py).
 # Every change here is git-tracked AND content-hashed; the hash is written to
 # every journal row and backtest artifact (see docs/ARCHITECTURE.md §Versioning).
 

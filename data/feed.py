@@ -1,4 +1,4 @@
-"""Market data feed for VMPM.
+"""Market data feed for Noema.
 
 Fetches OHLCV data from MT5 or generates synthetic data for paper trading.
 """

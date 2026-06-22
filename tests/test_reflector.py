@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from vmpm.agents.reflector import ReflectorAgent
+from noema.agents.reflector import ReflectorAgent
 
 
 class TestReflectorAgent:

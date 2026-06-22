@@ -1,4 +1,4 @@
-"""Event-driven backtesting engine for VMPM.
+"""Event-driven backtesting engine for Noema.
 
 Replays historical OHLCV bars through the full agent pipeline,
 simulates fills with slippage and spread, and records every decision
@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from vmpm.backtest.metrics import PerformanceMetrics, compute_metrics
+from noema.backtest.metrics import PerformanceMetrics, compute_metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -88,7 +88,7 @@ class BacktestResult:
 class BacktestEngine:
     """Event-driven backtesting engine.
 
-    Replays historical bars through the VMPM agent pipeline and
+    Replays historical bars through the Noema agent pipeline and
     simulates realistic fills with slippage and spread.
     """
 

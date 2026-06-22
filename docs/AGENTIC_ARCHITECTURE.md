@@ -1,4 +1,4 @@
-# VMPM Architecture v0.2 — Agentic Adaptation
+# Noema Architecture v0.2 — Agentic Adaptation
 
 **From OpenClaw / Hermes / Modern Agent Patterns → Trading System**
 
@@ -10,7 +10,7 @@ Supersedes: ARCHITECTURE.md where conflicts exist
 
 ## Why This Document Exists
 
-VMPM v0.1 was designed as a **linear pipeline** — 12 phases, sequential execution, one orchestrator driving everything. That works for a prototype. But a real-money trading system needs patterns that modern agent platforms (OpenClaw, Hermes, LangGraph) have battle-tested:
+Noema v0.1 was designed as a **linear pipeline** — 12 phases, sequential execution, one orchestrator driving everything. That works for a prototype. But a real-money trading system needs patterns that modern agent platforms (OpenClaw, Hermes, LangGraph) have battle-tested:
 
 - **Durable orchestration** that survives crashes and can resume
 - **Parallel agent execution** instead of serial bottleneck
@@ -20,7 +20,7 @@ VMPM v0.1 was designed as a **linear pipeline** — 12 phases, sequential execut
 - **Safety layer** with policy-filtered tool calls
 - **Subagent delegation** for parallel analysis
 
-This document maps each pattern to VMPM's specific needs.
+This document maps each pattern to Noema's specific needs.
 
 ---
 
@@ -28,7 +28,7 @@ This document maps each pattern to VMPM's specific needs.
 
 ### The Problem
 
-VMPM v0.1's `Orchestrator.run_cycle()` is a single async function. If it crashes mid-cycle, all state is lost. There's no way to know if an order was sent but not confirmed, or if a kill-switch tripped during execution.
+Noema v0.1's `Orchestrator.run_cycle()` is a single async function. If it crashes mid-cycle, all state is lost. There's no way to know if an order was sent but not confirmed, or if a kill-switch tripped during execution.
 
 ### The Pattern (from OpenClaw TaskFlow)
 
@@ -45,7 +45,7 @@ Key properties:
 - **Waiting states** — explicitly models "waiting for external input"
 - **Child tasks** — linked sub-work with parent orchestration
 
-### VMPM Adaptation: `TradeFlow`
+### Noema Adaptation: `TradeFlow`
 
 ```python
 # core/trade_flow.py
@@ -96,7 +96,7 @@ class TradeFlowManager:
 
 ### The Problem
 
-VMPM v0.1 has 17 agents, each a class with an `analyze()` method. But they're tightly coupled — the orchestrator imports all of them, knows their names, and calls them in a fixed order. Adding a new agent means editing `main.py`.
+Noema v0.1 has 17 agents, each a class with an `analyze()` method. But they're tightly coupled — the orchestrator imports all of them, knows their names, and calls them in a fixed order. Adding a new agent means editing `main.py`.
 
 ### The Pattern (from OpenClaw Skills)
 
@@ -106,7 +106,7 @@ OpenClaw skills are:
 - **Composable** — one skill can invoke another
 - **Versioned** — each skill has its own lifecycle
 
-### VMPM Adaptation: Agent Skills
+### Noema Adaptation: Agent Skills
 
 ```
 agents/
@@ -172,7 +172,7 @@ Each `SKILL.md` defines:
 
 ### The Problem
 
-VMPM v0.1's Guardian emits a heartbeat every 5s, but it's a simple `asyncio.Event` that nobody checks. The security audit found `check_heartbeat()` exists but is never called.
+Noema v0.1's Guardian emits a heartbeat every 5s, but it's a simple `asyncio.Event` that nobody checks. The security audit found `check_heartbeat()` exists but is never called.
 
 ### The Pattern (from OpenClaw)
 
@@ -183,7 +183,7 @@ OpenClaw's heartbeat system:
 - **Quiet when healthy** — `HEARTBEAT_OK` when nothing to report
 - **Loud when not** — proactive alerts on anomalies
 
-### VMPM Adaptation: Multi-Layer Heartbeat
+### Noema Adaptation: Multi-Layer Heartbeat
 
 ```python
 # core/heartbeat.py
@@ -269,7 +269,7 @@ class HeartbeatLayer:
 
 ### The Problem
 
-VMPM v0.1 runs agents sequentially:
+Noema v0.1 runs agents sequentially:
 ```python
 for pair in pairs:
     await self.agents["macro"].process(context)    # 200ms
@@ -288,7 +288,7 @@ OpenClaw spawns subagents for parallel work:
 - Parent can yield and wait for completion
 - Failed subagents don't crash the parent
 
-### VMPM Adaptation: Parallel Agent Fan-Out
+### Noema Adaptation: Parallel Agent Fan-Out
 
 ```python
 # core/parallel.py
@@ -365,7 +365,7 @@ Phase 6 (sequential): risk → execution                     — must be sequent
 
 ### The Problem
 
-VMPM v0.1 has `LearningAgent` and `KnowledgeBase` but no actual memory system. The SPRT, beta-posterior, and KS-drift kill-switches need historical trade outcomes, but there's no journal to query.
+Noema v0.1 has `LearningAgent` and `KnowledgeBase` but no actual memory system. The SPRT, beta-posterior, and KS-drift kill-switches need historical trade outcomes, but there's no journal to query.
 
 ### The Pattern (from OpenClaw Memory)
 
@@ -373,7 +373,7 @@ OpenClaw uses a two-tier memory:
 - **Daily logs** (`memory/YYYY-MM-DD.md`) — raw events, decisions, observations
 - **Long-term memory** (`MEMORY.md`) — curated insights, lessons, patterns
 
-### VMPM Adaptation: Trade Memory System
+### Noema Adaptation: Trade Memory System
 
 ```python
 # memory/trade_memory.py
@@ -479,7 +479,7 @@ class StrategyMemory:
 
 ### The Problem
 
-VMPM v0.1's `ExecutionAgent` directly calls `mt5.order_send()`. There's no policy layer between "decision made" and "order sent". The Guardian check happens before execution, but the actual `order_send` call has no guardrails.
+Noema v0.1's `ExecutionAgent` directly calls `mt5.order_send()`. There's no policy layer between "decision made" and "order sent". The Guardian check happens before execution, but the actual `order_send` call has no guardrails.
 
 ### The Pattern (from OpenClaw Tool Policy)
 
@@ -489,7 +489,7 @@ OpenClaw filters tool calls through policy:
 - Destructive actions use `trash` over `rm`
 - Allow-once is single-command only
 
-### VMPM Adaptiation: Execution Policy Layer
+### Noema Adaptiation: Execution Policy Layer
 
 ```python
 # core/execution_policy.py
@@ -546,8 +546,8 @@ class ExecutionPolicy:
 
     async def _check_live_mode(self) -> CheckResult:
         """Triple-confirm: env + CLI flag + daily interactive."""
-        if os.getenv("VMPM_MODE") != "live":
-            return CheckResult(denied=True, reason="VMPM_MODE != live")
+        if os.getenv("Noema_MODE") != "live":
+            return CheckResult(denied=True, reason="Noema_MODE != live")
         if not self._live_cli_flag:
             return CheckResult(denied=True, reason="--live flag not set")
         if not self._daily_confirmation:
@@ -591,7 +591,7 @@ async def place_order(self, request: OrderRequest, policy: ExecutionPolicy) -> O
 
 ### The Problem
 
-VMPM agents receive raw context dicts with no metadata about data freshness, source reliability, or confidence.
+Noema agents receive raw context dicts with no metadata about data freshness, source reliability, or confidence.
 
 ### The Pattern (from OpenClaw Inbound Context)
 
@@ -607,7 +607,7 @@ OpenClaw attaches trusted metadata to every inbound message:
 
 This metadata is **trusted** (generated by the system, not the user). Agents use it to make routing decisions.
 
-### VMPM Adaptiation: Market Context Envelope
+### Noema Adaptiation: Market Context Envelope
 
 ```python
 # core/market_context.py
@@ -675,7 +675,7 @@ class TrendAgent(Agent):
 
 ### The Problem
 
-VMPM v0.1 runs a single loop: analyze → sleep 60s → repeat. It doesn't know about trading sessions, news calendars, or scheduled events.
+Noema v0.1 runs a single loop: analyze → sleep 60s → repeat. It doesn't know about trading sessions, news calendars, or scheduled events.
 
 ### The Pattern (from OpenClaw Cron + Heartbeat)
 
@@ -683,7 +683,7 @@ OpenClaw uses:
 - **Cron jobs** for exact-timing tasks ("check calendar at 9am")
 - **Heartbeat** for periodic batch checks ("every 30 min, check email + calendar + weather")
 
-### VMPM Adaptiation: Session-Aware Scheduling
+### Noema Adaptiation: Session-Aware Scheduling
 
 ```python
 # core/scheduler.py
@@ -739,13 +739,13 @@ class TradingScheduler:
 
 ### The Problem
 
-VMPM has no way to quickly test a hypothesis before committing to a strategy change.
+Noema has no way to quickly test a hypothesis before committing to a strategy change.
 
 ### The Pattern (from OpenClaw Spike)
 
 Spike pattern: Question → Research → Build minimal → Stress test → Verdict
 
-### VMPM Adaptiation: Strategy Spikes
+### Noema Adaptiation: Strategy Spikes
 
 ```python
 # spikes/runner.py
@@ -833,4 +833,4 @@ class StrategySpike:
 
 ---
 
-*This document is the architectural bridge between VMPM v0.1 (scaffold) and a production-grade agentic trading system. Each pattern is borrowed from systems that handle real users at scale — adapted for a system that handles real money.*
+*This document is the architectural bridge between Noema v0.1 (scaffold) and a production-grade agentic trading system. Each pattern is borrowed from systems that handle real users at scale — adapted for a system that handles real money.*

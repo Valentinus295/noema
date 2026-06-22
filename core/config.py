@@ -1,7 +1,7 @@
 """DEPRECATED: Use core.settings instead.
 
 This module provides backward-compatible aliases.
-All new code should import from vmpm.core.settings directly.
+All new code should import from noema.core.settings directly.
 """
 from __future__ import annotations
 
@@ -9,17 +9,17 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from vmpm.core.settings import Settings, load_settings, RiskConfig
+from noema.core.settings import Settings, load_settings, RiskConfig
 
 warnings.warn(
-    "vmpm.core.config is deprecated. Use vmpm.core.settings instead.",
+    "noema.core.config is deprecated. Use noema.core.settings instead.",
     DeprecationWarning,
     stacklevel=2,
 )
 
 
 # Backward-compatible aliases
-VMPMConfig = Settings
+NoemaConfig = Settings
 
 
 def load_config(path: str | Path | None = None) -> Settings:

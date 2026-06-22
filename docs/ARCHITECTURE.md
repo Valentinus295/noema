@@ -1,4 +1,4 @@
-# VMPM Architecture (v0.1)
+# Noema Architecture (v0.1)
 
 This document pins every decision the security + quality reviews flagged as ambiguous.
 If it isn't written here, it isn't decided.
@@ -146,7 +146,7 @@ Per security review §Major:
 ## 13. Live-mode dual-confirm (pinned)
 
 Per security review §Major: live trading requires ALL of:
-- `VMPM_MODE=live` in env
+- `Noema_MODE=live` in env
 - `--live` CLI flag on `run_live.py`
 - Interactive `y/N` confirmation prompt on the first start of any calendar day
 

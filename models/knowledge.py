@@ -17,7 +17,7 @@ class KnowledgeBase:
     Stores which setups, sessions, and patterns work best.
     """
 
-    def __init__(self, path: str = "vmpm_knowledge.json") -> None:
+    def __init__(self, path: str = "noema_knowledge.json") -> None:
         self.path = Path(path)
         self.data: dict[str, Any] = self._load()
 

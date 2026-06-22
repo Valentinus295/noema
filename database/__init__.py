@@ -1,4 +1,4 @@
-"""Database engine for VMPM.
+"""Database engine for Noema.
 
 Optional SQLAlchemy with SQLite for legacy models.
 DuckDB journal (database/journal.py) is the primary trade log.
@@ -33,7 +33,7 @@ class DatabaseEngine:
     Prepared for future use when persistent storage is needed.
     """
 
-    def __init__(self, url: str = "sqlite+aiosqlite:///vmpm.db") -> None:
+    def __init__(self, url: str = "sqlite+aiosqlite:///noema.db") -> None:
         if not _HAS_SQLALCHEMY:
             raise ImportError("SQLAlchemy is required for DatabaseEngine. Install with: pip install sqlalchemy aiosqlite")
         self.url = url

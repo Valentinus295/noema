@@ -10,8 +10,8 @@ from typing import Any
 import pandas as pd
 import structlog
 
-from vmpm.analysis.smc import SMCForecaster
-from vmpm.core.modern_agent import DeterministicAgent, AgentReport
+from noema.analysis.smc import SMCForecaster
+from noema.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 

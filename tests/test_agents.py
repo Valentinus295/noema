@@ -1,4 +1,4 @@
-"""Unit tests for all 17 VMPM agents.
+"""Unit tests for all 17 Noema agents.
 
 Analysis Agents:  MacroEconomic, CurrencyStrength, MarketStructure,
                   InstitutionalFootprint, SupportResistance, SessionIntelligence
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from vmpm.core.agent import AgentReport
+from noema.core.agent import AgentReport
 
 
 # ===========================================================================
@@ -30,7 +30,7 @@ class TestMacroEconomicAgent:
     """Tests for MacroEconomicAgent (#2)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.macro import MacroEconomicAgent
+        from noema.agents.macro import MacroEconomicAgent
         agent = MacroEconomicAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -39,14 +39,14 @@ class TestMacroEconomicAgent:
         assert "bias" in report.data
 
     async def test_analyze_with_empty_events(self, agent_context, default_config):
-        from vmpm.agents.macro import MacroEconomicAgent
+        from noema.agents.macro import MacroEconomicAgent
         agent = MacroEconomicAgent(config=default_config, message_bus=MagicMock())
         agent_context["economic_events"] = []
         report = await agent.process(agent_context)
         assert report.signal in ("BULLISH", "BEARISH", "NEUTRAL", "STRONG_BULLISH", "STRONG_BEARISH")
 
     async def test_agent_identity(self, default_config):
-        from vmpm.agents.macro import MacroEconomicAgent
+        from noema.agents.macro import MacroEconomicAgent
         agent = MacroEconomicAgent(config=default_config)
         assert agent.name == "macro-economic"
         assert agent.role == "Macro Economic Intelligence"
@@ -57,7 +57,7 @@ class TestCurrencyStrengthAgent:
     """Tests for CurrencyStrengthAgent (#3)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.currency import CurrencyStrengthAgent
+        from noema.agents.currency import CurrencyStrengthAgent
         agent = CurrencyStrengthAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -68,7 +68,7 @@ class TestCurrencyStrengthAgent:
         assert "weakest" in report.data
 
     async def test_ranking_order(self, agent_context, default_config):
-        from vmpm.agents.currency import CurrencyStrengthAgent
+        from noema.agents.currency import CurrencyStrengthAgent
         agent = CurrencyStrengthAgent(config=default_config)
         report = await agent.process(agent_context)
         ranking = report.data["ranking"]
@@ -77,7 +77,7 @@ class TestCurrencyStrengthAgent:
             assert all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1))
 
     async def test_identity(self, default_config):
-        from vmpm.agents.currency import CurrencyStrengthAgent
+        from noema.agents.currency import CurrencyStrengthAgent
         agent = CurrencyStrengthAgent(config=default_config)
         assert agent.name == "currency-strength"
         assert agent.priority == 9
@@ -87,7 +87,7 @@ class TestMarketStructureAgent:
     """Tests for MarketStructureAgent (#4)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.structure import MarketStructureAgent
+        from noema.agents.structure import MarketStructureAgent
         agent = MarketStructureAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -97,7 +97,7 @@ class TestMarketStructureAgent:
         assert "choch_detected" in report.data
 
     async def test_insufficient_data(self, default_config):
-        from vmpm.agents.structure import MarketStructureAgent
+        from noema.agents.structure import MarketStructureAgent
         agent = MarketStructureAgent(config=default_config)
         context = {"price_data": pd.DataFrame({"close": [1.0] * 5})}
         report = await agent.process(context)
@@ -105,7 +105,7 @@ class TestMarketStructureAgent:
         assert "Insufficient data" in report.reasoning
 
     async def test_identity(self, default_config):
-        from vmpm.agents.structure import MarketStructureAgent
+        from noema.agents.structure import MarketStructureAgent
         agent = MarketStructureAgent(config=default_config)
         assert agent.name == "market-structure"
         assert agent.priority == 8
@@ -115,7 +115,7 @@ class TestInstitutionalFootprintAgent:
     """Tests for InstitutionalFootprintAgent (#5)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.institutional import InstitutionalFootprintAgent
+        from noema.agents.institutional import InstitutionalFootprintAgent
         agent = InstitutionalFootprintAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -125,14 +125,14 @@ class TestInstitutionalFootprintAgent:
         assert "liquidity_sweeps" in report.data
 
     async def test_insufficient_data(self, default_config):
-        from vmpm.agents.institutional import InstitutionalFootprintAgent
+        from noema.agents.institutional import InstitutionalFootprintAgent
         agent = InstitutionalFootprintAgent(config=default_config)
         context = {"price_data": pd.DataFrame({"close": [1.0] * 5})}
         report = await agent.process(context)
         assert report.signal == "NEUTRAL"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.institutional import InstitutionalFootprintAgent
+        from noema.agents.institutional import InstitutionalFootprintAgent
         agent = InstitutionalFootprintAgent(config=default_config)
         assert agent.name == "institutional-footprint"
         assert agent.priority == 7
@@ -142,7 +142,7 @@ class TestSupportResistanceAgent:
     """Tests for SupportResistanceAgent (#6)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.sr import SupportResistanceAgent
+        from noema.agents.sr import SupportResistanceAgent
         agent = SupportResistanceAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -154,7 +154,7 @@ class TestSupportResistanceAgent:
         assert "nearest_resistance" in report.data
 
     async def test_buy_and_sell_zones(self, agent_context, default_config):
-        from vmpm.agents.sr import SupportResistanceAgent
+        from noema.agents.sr import SupportResistanceAgent
         agent = SupportResistanceAgent(config=default_config)
         report = await agent.process(agent_context)
         assert len(report.data["buy_zones"]) > 0
@@ -167,7 +167,7 @@ class TestSupportResistanceAgent:
             assert "level" in zone
 
     async def test_identity(self, default_config):
-        from vmpm.agents.sr import SupportResistanceAgent
+        from noema.agents.sr import SupportResistanceAgent
         agent = SupportResistanceAgent(config=default_config)
         assert agent.name == "support-resistance"
         assert agent.priority == 6
@@ -177,7 +177,7 @@ class TestSessionIntelligenceAgent:
     """Tests for SessionIntelligenceAgent (#7)."""
 
     async def test_analyze_returns_report(self, default_config):
-        from vmpm.agents.session import SessionIntelligenceAgent
+        from noema.agents.session import SessionIntelligenceAgent
         agent = SessionIntelligenceAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process({})
         assert isinstance(report, AgentReport)
@@ -189,7 +189,7 @@ class TestSessionIntelligenceAgent:
         assert "current_hour_eat" in report.data
 
     async def test_session_format(self, default_config):
-        from vmpm.agents.session import SessionIntelligenceAgent
+        from noema.agents.session import SessionIntelligenceAgent
         agent = SessionIntelligenceAgent(config=default_config)
         report = await agent.process({})
         sessions = report.data["active_sessions"]
@@ -197,7 +197,7 @@ class TestSessionIntelligenceAgent:
             assert s in ("sydney", "tokyo", "london", "new_york")
 
     async def test_identity(self, default_config):
-        from vmpm.agents.session import SessionIntelligenceAgent
+        from noema.agents.session import SessionIntelligenceAgent
         agent = SessionIntelligenceAgent(config=default_config)
         assert agent.name == "session-intelligence"
         assert agent.priority == 5
@@ -212,7 +212,7 @@ class TestOpportunitySurveillanceAgent:
     """Tests for OpportunitySurveillanceAgent (#8)."""
 
     async def test_analyze_with_zones(self, agent_context, default_config, buy_zones, sell_zones, order_blocks):
-        from vmpm.agents.opportunity import OpportunitySurveillanceAgent
+        from noema.agents.opportunity import OpportunitySurveillanceAgent
         agent = OpportunitySurveillanceAgent(config=default_config, message_bus=MagicMock())
         agent_context["buy_zones"] = buy_zones
         agent_context["sell_zones"] = sell_zones
@@ -224,7 +224,7 @@ class TestOpportunitySurveillanceAgent:
         assert "current_price" in report.data
 
     async def test_no_zones(self, agent_context, default_config):
-        from vmpm.agents.opportunity import OpportunitySurveillanceAgent
+        from noema.agents.opportunity import OpportunitySurveillanceAgent
         agent = OpportunitySurveillanceAgent(config=default_config)
         agent_context["buy_zones"] = []
         agent_context["sell_zones"] = []
@@ -233,7 +233,7 @@ class TestOpportunitySurveillanceAgent:
         assert report.data["count"] == 0
 
     async def test_identity(self, default_config):
-        from vmpm.agents.opportunity import OpportunitySurveillanceAgent
+        from noema.agents.opportunity import OpportunitySurveillanceAgent
         agent = OpportunitySurveillanceAgent(config=default_config)
         assert agent.name == "opportunity-surveillance"
         assert agent.priority == 4
@@ -243,7 +243,7 @@ class TestMomentumAgent:
     """Tests for MomentumAgent (#9)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.momentum import MomentumAgent
+        from noema.agents.momentum import MomentumAgent
         agent = MomentumAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -256,14 +256,14 @@ class TestMomentumAgent:
         assert "divergence" in report.data
 
     async def test_insufficient_data(self, default_config):
-        from vmpm.agents.momentum import MomentumAgent
+        from noema.agents.momentum import MomentumAgent
         agent = MomentumAgent(config=default_config)
         context = {"price_data": pd.DataFrame({"close": [1.0] * 5})}
         report = await agent.process(context)
         assert report.signal == "NEUTRAL"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.momentum import MomentumAgent
+        from noema.agents.momentum import MomentumAgent
         agent = MomentumAgent(config=default_config)
         assert agent.name == "momentum"
         assert agent.priority == 4
@@ -273,7 +273,7 @@ class TestPriceActionAgent:
     """Tests for PriceActionAgent (#10)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config):
-        from vmpm.agents.price_action import PriceActionAgent
+        from noema.agents.price_action import PriceActionAgent
         agent = PriceActionAgent(config=default_config, message_bus=MagicMock())
         report = await agent.process(agent_context)
         assert isinstance(report, AgentReport)
@@ -282,14 +282,14 @@ class TestPriceActionAgent:
         assert "confirmation" in report.data
 
     async def test_insufficient_data(self, default_config):
-        from vmpm.agents.price_action import PriceActionAgent
+        from noema.agents.price_action import PriceActionAgent
         agent = PriceActionAgent(config=default_config)
         context = {"price_data": pd.DataFrame({"close": [1.0] * 3})}
         report = await agent.process(context)
         assert report.signal == "NEUTRAL"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.price_action import PriceActionAgent
+        from noema.agents.price_action import PriceActionAgent
         agent = PriceActionAgent(config=default_config)
         assert agent.name == "price-action"
         assert agent.priority == 3
@@ -304,7 +304,7 @@ class TestTradeThesisAgent:
     """Tests for TradeThesisAgent (#11)."""
 
     async def test_analyze_returns_report(self, agent_context, default_config, agent_reports):
-        from vmpm.agents.thesis import TradeThesisAgent
+        from noema.agents.thesis import TradeThesisAgent
         agent = TradeThesisAgent(config=default_config, message_bus=MagicMock())
         agent_context["agent_reports"] = agent_reports
         agent_context["direction"] = "long"
@@ -316,7 +316,7 @@ class TestTradeThesisAgent:
         assert "direction" in report.data
 
     async def test_bullish_evidence(self, default_config):
-        from vmpm.agents.thesis import TradeThesisAgent
+        from noema.agents.thesis import TradeThesisAgent
         agent = TradeThesisAgent(config=default_config)
         context = {
             "pair": "EURUSD",
@@ -334,7 +334,7 @@ class TestTradeThesisAgent:
         assert len(report.data["evidence_for"]) >= 2
 
     async def test_mixed_signals(self, default_config):
-        from vmpm.agents.thesis import TradeThesisAgent
+        from noema.agents.thesis import TradeThesisAgent
         agent = TradeThesisAgent(config=default_config)
         context = {
             "pair": "EURUSD",
@@ -349,7 +349,7 @@ class TestTradeThesisAgent:
         assert len(report.data["evidence_against"]) >= 1
 
     async def test_identity(self, default_config):
-        from vmpm.agents.thesis import TradeThesisAgent
+        from noema.agents.thesis import TradeThesisAgent
         agent = TradeThesisAgent(config=default_config)
         assert agent.name == "trade-thesis"
         assert agent.priority == 2
@@ -359,7 +359,7 @@ class TestDevilsAdvocateAgent:
     """Tests for DevilsAdvocateAgent (#12)."""
 
     async def test_approve_good_setup(self, agent_context, default_config, agent_reports):
-        from vmpm.agents.devil import DevilsAdvocateAgent
+        from noema.agents.devil import DevilsAdvocateAgent
         agent = DevilsAdvocateAgent(config=default_config, message_bus=MagicMock())
         agent_context["agent_reports"] = agent_reports
         agent_context["direction"] = "long"
@@ -369,7 +369,7 @@ class TestDevilsAdvocateAgent:
         assert "verdict" in report.data
 
     async def test_reject_conflicting(self, default_config):
-        from vmpm.agents.devil import DevilsAdvocateAgent
+        from noema.agents.devil import DevilsAdvocateAgent
         agent = DevilsAdvocateAgent(config=default_config)
         context = {
             "pair": "EURUSD",
@@ -386,7 +386,7 @@ class TestDevilsAdvocateAgent:
         assert len(report.data["weaknesses"]) >= 2
 
     async def test_identity(self, default_config):
-        from vmpm.agents.devil import DevilsAdvocateAgent
+        from noema.agents.devil import DevilsAdvocateAgent
         agent = DevilsAdvocateAgent(config=default_config)
         assert agent.name == "devils-advocate"
         assert agent.priority == 1
@@ -396,7 +396,7 @@ class TestCIOAgent:
     """Tests for CIOAgent (#1)."""
 
     async def test_buy_decision(self, agent_context, default_config, agent_reports):
-        from vmpm.agents.cio import CIOAgent
+        from noema.agents.cio import CIOAgent
         agent = CIOAgent(config=default_config, message_bus=MagicMock())
         agent_context["agent_reports"] = agent_reports
         agent_context["direction"] = "long"
@@ -407,7 +407,7 @@ class TestCIOAgent:
         assert "consensus" in report.data
 
     async def test_reject_when_devil_says_reject(self, default_config):
-        from vmpm.agents.cio import CIOAgent
+        from noema.agents.cio import CIOAgent
         agent = CIOAgent(config=default_config)
         context = {
             "pair": "EURUSD",
@@ -422,7 +422,7 @@ class TestCIOAgent:
         assert report.signal == "REJECT"
 
     async def test_wait_low_consensus(self, default_config):
-        from vmpm.agents.cio import CIOAgent
+        from noema.agents.cio import CIOAgent
         agent = CIOAgent(config=default_config)
         context = {
             "pair": "EURUSD",
@@ -438,7 +438,7 @@ class TestCIOAgent:
         assert report.signal == "WAIT"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.cio import CIOAgent
+        from noema.agents.cio import CIOAgent
         agent = CIOAgent(config=default_config)
         assert agent.name == "cio"
         assert agent.priority == 0
@@ -453,7 +453,7 @@ class TestRiskManagerAgent:
     """Tests for RiskManagerAgent (#13)."""
 
     async def test_approve_valid_trade(self, default_config):
-        from vmpm.agents.risk import RiskManagerAgent
+        from noema.agents.risk import RiskManagerAgent
         agent = RiskManagerAgent(config=default_config)
         context = {
             "account_balance": 10000.0,
@@ -473,7 +473,7 @@ class TestRiskManagerAgent:
         assert report.data["rr_ratio"] >= 2.0
 
     async def test_reject_max_daily_loss(self, default_config):
-        from vmpm.agents.risk import RiskManagerAgent
+        from noema.agents.risk import RiskManagerAgent
         agent = RiskManagerAgent(config=default_config)
         context = {
             "account_balance": 10000.0,
@@ -491,7 +491,7 @@ class TestRiskManagerAgent:
         assert "Daily loss limit" in report.reasoning
 
     async def test_reject_max_open_trades(self, default_config):
-        from vmpm.agents.risk import RiskManagerAgent
+        from noema.agents.risk import RiskManagerAgent
         agent = RiskManagerAgent(config=default_config)
         context = {
             "account_balance": 10000.0,
@@ -508,7 +508,7 @@ class TestRiskManagerAgent:
         assert report.signal == "REJECT"
 
     async def test_reject_poor_rr(self, default_config):
-        from vmpm.agents.risk import RiskManagerAgent
+        from noema.agents.risk import RiskManagerAgent
         agent = RiskManagerAgent(config=default_config)
         context = {
             "account_balance": 10000.0,
@@ -525,7 +525,7 @@ class TestRiskManagerAgent:
         assert report.signal == "REJECT"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.risk import RiskManagerAgent
+        from noema.agents.risk import RiskManagerAgent
         agent = RiskManagerAgent(config=default_config)
         assert agent.name == "risk-manager"
         assert agent.priority == 1
@@ -535,7 +535,7 @@ class TestExecutionAgent:
     """Tests for ExecutionAgent (#14)."""
 
     async def test_simulated_trade(self, default_config):
-        from vmpm.agents.execution import ExecutionAgent
+        from noema.agents.execution import ExecutionAgent
         agent = ExecutionAgent(config=default_config)
         context = {
             "broker": MagicMock(),
@@ -550,7 +550,7 @@ class TestExecutionAgent:
         assert report.signal in ("SIMULATED", "ERROR")
 
     async def test_no_broker(self, default_config):
-        from vmpm.agents.execution import ExecutionAgent
+        from noema.agents.execution import ExecutionAgent
         agent = ExecutionAgent(config=default_config)
         context = {
             "pair": "EURUSD",
@@ -563,7 +563,7 @@ class TestExecutionAgent:
         assert report.signal == "ERROR"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.execution import ExecutionAgent
+        from noema.agents.execution import ExecutionAgent
         agent = ExecutionAgent(config=default_config)
         assert agent.name == "execution"
         assert agent.priority == 0
@@ -573,7 +573,7 @@ class TestTradeManagementAgent:
     """Tests for TradeManagementAgent (#15)."""
 
     async def test_hold_with_no_positions(self, default_config):
-        from vmpm.agents.management import TradeManagementAgent
+        from noema.agents.management import TradeManagementAgent
         agent = TradeManagementAgent(config=default_config)
         context = {"open_positions": [], "current_prices": {}}
         report = await agent.process(context)
@@ -581,7 +581,7 @@ class TestTradeManagementAgent:
         assert report.data["positions_monitored"] == 0
 
     async def test_actions_with_positions(self, default_config):
-        from vmpm.agents.management import TradeManagementAgent
+        from noema.agents.management import TradeManagementAgent
         agent = TradeManagementAgent(config=default_config)
         context = {
             "open_positions": [
@@ -595,7 +595,7 @@ class TestTradeManagementAgent:
         assert report.signal in ("ACTION", "HOLD")
 
     async def test_emergency_exit(self, default_config):
-        from vmpm.agents.management import TradeManagementAgent
+        from noema.agents.management import TradeManagementAgent
         agent = TradeManagementAgent(config=default_config)
         context = {
             "open_positions": [
@@ -611,7 +611,7 @@ class TestTradeManagementAgent:
             assert any(a["type"] == "emergency_exit" for a in actions)
 
     async def test_identity(self, default_config):
-        from vmpm.agents.management import TradeManagementAgent
+        from noema.agents.management import TradeManagementAgent
         agent = TradeManagementAgent(config=default_config)
         assert agent.name == "trade-management"
         assert agent.priority == 0
@@ -626,7 +626,7 @@ class TestPerformanceAnalystAgent:
     """Tests for PerformanceAnalystAgent (#16)."""
 
     async def test_analyze_no_trades(self, default_config):
-        from vmpm.agents.performance import PerformanceAnalystAgent
+        from noema.agents.performance import PerformanceAnalystAgent
         agent = PerformanceAnalystAgent(config=default_config)
         context = {"trade_history": []}
         report = await agent.process(context)
@@ -634,7 +634,7 @@ class TestPerformanceAnalystAgent:
         assert report.data["total_trades"] == 0
 
     async def test_analyze_with_trades(self, default_config):
-        from vmpm.agents.performance import PerformanceAnalystAgent
+        from noema.agents.performance import PerformanceAnalystAgent
         agent = PerformanceAnalystAgent(config=default_config)
         context = {
             "trade_history": [
@@ -652,7 +652,7 @@ class TestPerformanceAnalystAgent:
         assert "session_stats" in report.data
 
     async def test_high_win_rate(self, default_config):
-        from vmpm.agents.performance import PerformanceAnalystAgent
+        from noema.agents.performance import PerformanceAnalystAgent
         agent = PerformanceAnalystAgent(config=default_config)
         context = {
             "trade_history": [
@@ -664,7 +664,7 @@ class TestPerformanceAnalystAgent:
         assert report.signal == "BULLISH"
 
     async def test_identity(self, default_config):
-        from vmpm.agents.performance import PerformanceAnalystAgent
+        from noema.agents.performance import PerformanceAnalystAgent
         agent = PerformanceAnalystAgent(config=default_config)
         assert agent.name == "performance-analyst"
         assert agent.priority == 0
@@ -674,14 +674,14 @@ class TestLearningAgent:
     """Tests for LearningAgent (#17)."""
 
     async def test_no_trade_to_learn(self, default_config):
-        from vmpm.agents.learning import LearningAgent
+        from noema.agents.learning import LearningAgent
         agent = LearningAgent(config=default_config)
         context = {"completed_trade": {}}
         report = await agent.process(context)
         assert report.signal == "NEUTRAL"
 
     async def test_record_trade(self, default_config, tmp_path):
-        from vmpm.agents.learning import LearningAgent
+        from noema.agents.learning import LearningAgent
         agent = LearningAgent(config=default_config)
         agent.knowledge_file = tmp_path / "test_knowledge.json"
         agent.knowledge = {"trades": [], "insights": {}}
@@ -712,7 +712,7 @@ class TestLearningAgent:
         assert saved["trades"][0]["pair"] == "EURUSD"
 
     async def test_analyze_patterns_with_multiple_trades(self, default_config, tmp_path):
-        from vmpm.agents.learning import LearningAgent
+        from noema.agents.learning import LearningAgent
         agent = LearningAgent(config=default_config)
         agent.knowledge_file = tmp_path / "test_knowledge2.json"
 
@@ -737,7 +737,7 @@ class TestLearningAgent:
         assert "pattern_stats" in insights
 
     async def test_knowledge_persistence(self, default_config, tmp_path):
-        from vmpm.agents.learning import LearningAgent
+        from noema.agents.learning import LearningAgent
         agent = LearningAgent(config=default_config)
         agent.knowledge_file = tmp_path / "persist.json"
         agent.knowledge = {"trades": [], "insights": {}}
@@ -751,7 +751,7 @@ class TestLearningAgent:
         assert len(agent2.knowledge["trades"]) == 1
 
     async def test_identity(self, default_config):
-        from vmpm.agents.learning import LearningAgent
+        from noema.agents.learning import LearningAgent
         agent = LearningAgent(config=default_config)
         assert agent.name == "learning"
         assert agent.priority == 0

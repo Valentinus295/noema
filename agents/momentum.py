@@ -12,8 +12,8 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from vmpm.analysis.technical import TechnicalAnalyzer
-from vmpm.core.modern_agent import DeterministicAgent, AgentReport
+from noema.analysis.technical import TechnicalAnalyzer
+from noema.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 

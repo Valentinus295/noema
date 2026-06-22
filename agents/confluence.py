@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Sequence
 
-from vmpm.core.types import Bar, Bias, Direction, Setup, Timeframe, Verdict
-from vmpm.indicators.rsi import rsi
-from vmpm.indicators.candlestick import detect_pattern
+from noema.core.types import Bar, Bias, Direction, Setup, Timeframe, Verdict
+from noema.indicators.rsi import rsi
+from noema.indicators.candlestick import detect_pattern
 
 
 @dataclass

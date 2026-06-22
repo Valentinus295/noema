@@ -1,9 +1,9 @@
-# VMPM × Hermes Agent Architecture — Deep Adaptation
+# Noema × Hermes Agent Architecture — Deep Adaptation
 
 **Date:** 2026-06-17  
 **Status:** Architectural design document  
 **Source:** [Hermes Agent](https://hermes-agent.nousresearch.com) by NousResearch  
-**Target:** VMPM (Valentine Money Printing Machine) multi-agent trading system
+**Target:** Noema multi-agent trading system
 
 ---
 
@@ -19,7 +19,7 @@ Hermes Agent isn't just another chatbot framework. It's a **production system** 
 
 Your trading system needs **every one of these patterns**, but for a different domain: instead of "user asks question, agent uses tools, returns answer", it's "market ticks, agents analyze, execute trade, manage position, survive crash."
 
-This document maps Hermes internals to VMPM's specific needs. Every pattern below is battle-tested in Hermes at scale — not theoretical.
+This document maps Hermes internals to Noema's specific needs. Every pattern below is battle-tested in Hermes at scale — not theoretical.
 
 ---
 
@@ -40,10 +40,10 @@ Key properties:
 - **Fallback-aware** — if primary model fails (429, 5xx), try fallback providers
 - **Compression-aware** — when context > 50%, summarize middle turns
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
-# core/trading_loop.py — VMPM's equivalent of AIAgent.run_conversation()
+# core/trading_loop.py — Noema's equivalent of AIAgent.run_conversation()
 
 class TradingLoop:
     """The core trading loop. Equivalent to Hermes's AIAgent.run_conversation().
@@ -84,7 +84,7 @@ class TradingLoop:
             
             # Phase 2: Run agents (like Hermes's tool dispatch)
             # Hermes runs tools sequentially or concurrently via ThreadPoolExecutor
-            # VMPM does the same with agent fan-out
+            # Noema does the same with agent fan-out
             analysis = await self._run_analysis(context)
             
             # Phase 3: Decision (like Hermes's LLM reasoning)
@@ -92,7 +92,7 @@ class TradingLoop:
             
             # Phase 4: Policy check (like Hermes's approval.py)
             # Hermes checks "is this command dangerous?" before executing
-            # VMPM checks "is this order safe?" before sending
+            # Noema checks "is this order safe?" before sending
             if decision.action == "TRADE":
                 policy_result = await self.policy.evaluate(decision.order, context)
                 if not policy_result.allowed:
@@ -109,7 +109,7 @@ class TradingLoop:
             
         except asyncio.CancelledError:
             # Hermes pattern: interruptible. User can cancel mid-flight.
-            # VMPM: Guardian can cancel mid-cycle.
+            # Noema: Guardian can cancel mid-cycle.
             await self.memory.record_cancelled(flow, "interrupted")
             raise
         except Exception as e:
@@ -123,7 +123,7 @@ class TradingLoop:
         """Build the context for this cycle. Like Hermes's prompt_builder.
         
         Hermes assembles: identity → tools → skills → memory → context → timestamp
-        VMPM assembles: market data → news → positions → guardian state → memory
+        Noema assembles: market data → news → positions → guardian state → memory
         """
         bars = await self.broker.bars(symbol, "H1", 200)
         positions = await self.broker.positions()
@@ -150,7 +150,7 @@ class TradingLoop:
         """Run analysis agents. Like Hermes's tool dispatch.
         
         Hermes dispatches tools sequentially (single) or concurrently (multiple).
-        VMPM does the same: independent agents run in parallel, dependent ones sequential.
+        Noema does the same: independent agents run in parallel, dependent ones sequential.
         """
         # Independent agents — run concurrently (like Hermes ThreadPoolExecutor)
         independent = ["trend", "structure", "fundamental", "currency"]
@@ -166,9 +166,9 @@ class TradingLoop:
         return {**parallel_results, **sequential_results}
 ```
 
-### What VMPM Gets From This
+### What Noema Gets From This
 
-| Hermes Pattern | VMPM Application |
+| Hermes Pattern | Noema Application |
 |---|---|
 | Interruptible API calls | Guardian can cancel a cycle mid-flight |
 | Iteration budget (90 turns) | Max cycle iterations, prevents runaway loops |
@@ -202,10 +202,10 @@ registry.register(
 
 The registry is the **single source of truth** for all tool schemas, dispatch, and availability. No manual import list — any file with `registry.register()` is auto-discovered.
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
-# agents/registry.py — VMPM's equivalent of tools/registry.py
+# agents/registry.py — Noema's equivalent of tools/registry.py
 
 class AgentRegistry:
     """Central registry for all trading agents. Self-registration at import time.
@@ -242,13 +242,13 @@ class AgentRegistry:
     @classmethod
     def discover(cls) -> dict[str, AgentDef]:
         """Auto-discover all registered agents. Import triggers registration."""
-        import vmpm.agents.trend
-        import vmpm.agents.structure
-        import vmpm.agents.fundamental
-        import vmpm.agents.confluence
-        import vmpm.agents.risk
-        import vmpm.agents.execution
-        import vmpm.agents.guardian
+        import noema.agents.trend
+        import noema.agents.structure
+        import noema.agents.fundamental
+        import noema.agents.confluence
+        import noema.agents.risk
+        import noema.agents.execution
+        import noema.agents.guardian
         # ... any file with @AgentRegistry.register() is now registered
         return cls._agents.copy()
     
@@ -299,9 +299,9 @@ class ExecutionAgent(Agent):
     ...
 ```
 
-### What VMPM Gets From This
+### What Noema Gets From This
 
-| Hermes Pattern | VMPM Application |
+| Hermes Pattern | Noema Application |
 |---|---|
 | Self-registration at import time | Add new agent = add file with decorator. No editing orchestrator. |
 | `dangerous=True` flag | ExecutionAgent triggers policy check before order_send |
@@ -324,7 +324,7 @@ Hermes's `delegate_task` spawns child agents with:
 
 Key property: **subagent isolation prevents cascade failures**. If a child crashes, the parent survives.
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # core/delegate.py
@@ -415,7 +415,7 @@ Retry → Replan → Decompose Further
 - **Replan** — Meta-agent rewrites the task based on failure reason
 - **Decompose** — Break failed task into smaller subtasks
 
-### VMPM Adaptation: Trade-Aware Failure Recovery
+### Noema Adaptation: Trade-Aware Failure Recovery
 
 ```python
 class TradeFailureRecovery:
@@ -473,7 +473,7 @@ Hermes's Tool Gateway provides:
 - **Self-registration** — tools register at import time
 - **Approval callbacks** — dangerous tools require user confirmation
 
-### VMPM Adaptation: Broker Gateway
+### Noema Adaptation: Broker Gateway
 
 ```python
 # broker/gateway.py
@@ -517,10 +517,10 @@ Hermes's `tools/approval.py` detects dangerous commands:
 - User sees the exact command and approves/rejects
 - `allow-once` is single-command only
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
-# core/approval.py — VMPM's equivalent of tools/approval.py
+# core/approval.py — Noema's equivalent of tools/approval.py
 
 # Dangerous patterns that require approval
 DANGER_PATTERNS = {
@@ -537,7 +537,7 @@ class TradeApproval:
     """Detect dangerous order conditions. Like Hermes's approval.py.
     
     Hermes pattern: pattern match → callback → user approves → execute.
-    VMPM adaptation: pattern match → policy check → Telegram alert → auto-reject.
+    Noema adaptation: pattern match → policy check → Telegram alert → auto-reject.
     """
 
     def __init__(self, telegram_notifier: TelegramNotifier | None = None):
@@ -565,7 +565,7 @@ class TradeApproval:
                 f"  Auto-rejected (no override without explicit /approve)"
             )
         
-        # VMPM default: auto-reject dangerous orders
+        # Noema default: auto-reject dangerous orders
         # (unlike Hermes where user can approve, trading system should be conservative)
         return ApprovalResult(
             approved=False,
@@ -587,10 +587,10 @@ Hermes uses SQLite + FTS5 for session storage:
 - Atomic writes with contention handling
 - Full-text search across all sessions
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
-# journal/store.py — VMPM's equivalent of hermes_state.py
+# journal/store.py — Noema's equivalent of hermes_state.py
 
 class TradeJournal:
     """SQLite-based trade journal. Like Hermes's session storage.
@@ -685,7 +685,7 @@ Hermes compresses conversation history when it exceeds the context window:
 - Tool call/result pairs kept together
 - New session lineage ID generated
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # memory/compressor.py
@@ -778,7 +778,7 @@ Hermes's cron is first-class:
 - Jobs deliver to any platform (Discord, Telegram, etc.)
 - Scheduler ticks independently, loads due jobs
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # scheduler/market_cron.py
@@ -866,7 +866,7 @@ Hermes defines 4 levels of inter-agent communication:
 | L2 | Shared scratchpad | Read/write shared key-value store |
 | L3 | Live dialogue | Turn-based agent-to-agent conversation |
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # core/communication.py
@@ -874,7 +874,7 @@ Hermes defines 4 levels of inter-agent communication:
 class AgentCommunication:
     """Inter-agent communication with 4 levels. From Hermes Issue #344.
     
-    Most VMPM agents use L0 (isolated) or L1 (result passing).
+    Most Noema agents use L0 (isolated) or L1 (result passing).
     Guardian uses L2 (shared scratchpad for kill-switch state).
     Devil's Advocate vs Trade Thesis uses L3 (adversarial debate).
     """
@@ -967,7 +967,7 @@ Gas Town is a 348K LOC Go system orchestrating 20-50+ concurrent coding agents. 
 - **Idle Town Principle**: Skip health checks when no active work
 - **Mail vs Nudge**: Persistent messages (survive crashes) vs ephemeral reminders (zero-cost)
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # core/durable_work.py
@@ -1071,7 +1071,7 @@ Hermes's adversarial debate mode:
 - Convergence: opponent ACCEPTS or proponent CONCEDES
 - Max rounds prevent infinite loops
 
-### VMPM Adaptation
+### Noema Adaptation
 
 This directly maps to your existing `TradeThesisAgent` vs `DevilsAdvocateAgent`:
 
@@ -1146,7 +1146,7 @@ Shared memory pools allow subagents to:
 - See each other's contributions in real-time
 - Build on each other's work
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # core/shared_state.py
@@ -1219,7 +1219,7 @@ Hermes adds acceptance criteria and an independent judge for delegation quality:
 - Judge evaluates subagent output against criteria
 - Failed criteria trigger retry or rejection
 
-### VMPM Adaptation
+### Noema Adaptation
 
 ```python
 # core/quality_gates.py
@@ -1268,9 +1268,9 @@ class TradeQualityGates:
 
 ---
 
-## Summary: Hermes → VMPM Pattern Map
+## Summary: Hermes → Noema Pattern Map
 
-| # | Hermes Pattern | VMPM Equivalent | Status |
+| # | Hermes Pattern | Noema Equivalent | Status |
 |---|---|---|---|
 | 1 | AIAgent.run_conversation() | TradingLoop.run_cycle() | To build |
 | 2 | tools/registry.py | agents/registry.py | To build |
@@ -1295,7 +1295,7 @@ class TradeQualityGates:
 ## The Big Picture
 
 ```
-Hermes Agent                          VMPM Trading System
+Hermes Agent                          Noema Trading System
 ─────────────                         ───────────────────
 User message           →              Market tick / candle close
 AIAgent.run_conversation()   →        TradingLoop.run_cycle()
@@ -1318,7 +1318,7 @@ Acceptance criteria    →              Trade quality gates
 3-layer watchdog       →              Daemon → Boot → Deacon monitoring
 ```
 
-**The fundamental insight:** Hermes treats every user interaction as an agent loop with tool dispatch, safety gating, session persistence, and failure recovery. VMPM should treat every market tick the same way — an agent loop with analysis dispatch, execution policy, journal persistence, and crash recovery.
+**The fundamental insight:** Hermes treats every user interaction as an agent loop with tool dispatch, safety gating, session persistence, and failure recovery. Noema should treat every market tick the same way — an agent loop with analysis dispatch, execution policy, journal persistence, and crash recovery.
 
 The code changes. The architecture doesn't.
 

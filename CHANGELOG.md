@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Valentine Money Printing Machine (VMPM) will be documented in this file.
+All notable changes to the Noema will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🎉 Initial Release
 
-The Valentine Money Printing Machine (VMPM) v1.0.0 is a **multi-agent forex trading system** that replicates the reasoning of a disciplined institutional trader.
+The Noema v1.0.0 is a **multi-agent forex trading system** that replicates the reasoning of a disciplined institutional trader.
 
 ### 🤖 Agents (17 total)
 
@@ -57,7 +57,7 @@ The Valentine Money Printing Machine (VMPM) v1.0.0 is a **multi-agent forex trad
 - **PaperBroker** - Simulated trading for safe testing
 - **MarketDataFeed** - OHLCV data from MT5 or synthetic generation
 - **EconomicCalendar** - Economic event data with API + fallback
-- **VMPMConfig** - YAML configuration with environment variable overrides
+- **NoemaConfig** - YAML configuration with environment variable overrides
 
 ### 🎯 12-Phase Trading Pipeline
 

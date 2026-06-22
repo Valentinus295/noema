@@ -1,4 +1,4 @@
-"""Modern agent base class for VMPM — the agentic architecture.
+"""Modern agent base class for Noema — the agentic architecture.
 
 Every agent now has:
 - A reasoning loop (LLM-powered or deterministic)
@@ -24,8 +24,8 @@ from typing import Any, Generic, TypeVar
 import structlog
 from pydantic import BaseModel, ValidationError
 
-from vmpm.core.nim_client import NIMClient, ModelTier
-from vmpm.models.schemas import schema_prompt
+from noema.core.nim_client import NIMClient, ModelTier
+from noema.models.schemas import schema_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +129,7 @@ class AgentMemory:
 # ── Base Agent (Abstract) ────────────────────────────────────────────
 
 class BaseAgent(ABC):
-    """Abstract base for all VMPM agents."""
+    """Abstract base for all Noema agents."""
 
     name: str = "base-agent"
     role: str = "Base Agent"

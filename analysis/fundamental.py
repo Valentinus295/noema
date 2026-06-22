@@ -1,4 +1,4 @@
-"""Fundamental analysis module for VMPM.
+"""Fundamental analysis module for Noema.
 
 Analyzes economic data, news events, and macro indicators
 to determine fundamental bias for currencies.

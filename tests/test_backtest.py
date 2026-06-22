@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from vmpm.backtest.engine import BacktestEngine, BacktestConfig, TradeRecord
-from vmpm.backtest.metrics import compute_metrics, PerformanceMetrics, format_metrics
-from vmpm.backtest.statistical import (
+from noema.backtest.engine import BacktestEngine, BacktestConfig, TradeRecord
+from noema.backtest.metrics import compute_metrics, PerformanceMetrics, format_metrics
+from noema.backtest.statistical import (
     bootstrap_sharpe_ci, sprt_monitor, permutation_test, monte_carlo_ruin,
 )
-from vmpm.backtest.walkforward import WalkForwardOptimizer
+from noema.backtest.walkforward import WalkForwardOptimizer
 
 
 # ── Fixtures ──

@@ -1,4 +1,4 @@
-"""Configuration management for VMPM."""
+"""Configuration management for Noema."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ class Settings(BaseModel):
     trading: TradingConfig = Field(default_factory=TradingConfig)
     nim: NIMConfig = Field(default_factory=NIMConfig)
     log_level: str = "INFO"
-    database_url: str = "sqlite+aiosqlite:///vmpm.db"
+    database_url: str = "sqlite+aiosqlite:///noema.db"
     redis_url: str = ""
     symbols_whitelist: list[str] = Field(
         default_factory=lambda: ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD"]
@@ -114,11 +114,11 @@ def load_settings(path: Path | None = None) -> Settings:
     )
     # Environment overrides
     import os
-    if mt5_login := os.getenv("VMPM_MT5_LOGIN"):
+    if mt5_login := os.getenv("Noema_MT5_LOGIN"):
         settings.broker.mt5_login = int(mt5_login)
-    if mt5_pass := os.getenv("VMPM_MT5_PASSWORD"):
+    if mt5_pass := os.getenv("Noema_MT5_PASSWORD"):
         settings.broker.mt5_password = mt5_pass
-    if mt5_server := os.getenv("VMPM_MT5_SERVER"):
+    if mt5_server := os.getenv("Noema_MT5_SERVER"):
         settings.broker.mt5_server = mt5_server
     if nim_key := os.getenv("NIM_API_KEY"):
         settings.nim.api_key = nim_key

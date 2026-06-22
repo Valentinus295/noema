@@ -1,4 +1,4 @@
-"""Economic calendar data for VMPM fundamental analysis.
+"""Economic calendar data for Noema fundamental analysis.
 
 Fetches upcoming economic events from free APIs or provides
 static fallback data for testing.

@@ -1,8 +1,8 @@
-# VMPM Security Audit Report
+# Noema Security Audit Report
 
 **Date:** 2026-06-17  
 **Auditor:** Automated Security Audit Agent  
-**Scope:** Full codebase at `valentine-money-printing-machine/`  
+**Scope:** Full codebase at `noema/`  
 **System:** Multi-agent forex trading system handling real money via MT5/FxPesa  
 **Severity Scale:** 🔴 CRITICAL · 🟠 HIGH · 🟡 MEDIUM · 🔵 LOW · ⚪ INFO
 
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-VMPM is a well-architected multi-agent trading system with strong **design intent** for security (documented in `docs/SECURITY.md` and `docs/ARCHITECTURE.md`). However, the codebase is in an **early scaffold stage** — many documented controls exist only as documentation, not as implemented code. The most critical finding is a **leaked GitHub Personal Access Token** in `.git/config`. Several architectural security decisions (LLM isolation, kill-switches, Guardian heartbeat) are sound in design but have significant implementation gaps.
+Noema is a well-architected multi-agent trading system with strong **design intent** for security (documented in `docs/SECURITY.md` and `docs/ARCHITECTURE.md`). However, the codebase is in an **early scaffold stage** — many documented controls exist only as documentation, not as implemented code. The most critical finding is a **leaked GitHub Personal Access Token** in `.git/config`. Several architectural security decisions (LLM isolation, kill-switches, Guardian heartbeat) are sound in design but have significant implementation gaps.
 
 ### Finding Summary
 
@@ -140,19 +140,19 @@ No Python file imports `openai`, `litellm`, or makes HTTP calls to an LLM endpoi
 
 ### 🟠 HIGH: Live-Mode Dual-Confirm Not Implemented
 
-**SECURITY.md states:** "Live trading requires `VMPM_MODE=live` + `--live` CLI flag + first-of-day interactive confirmation."
+**SECURITY.md states:** "Live trading requires `Noema_MODE=live` + `--live` CLI flag + first-of-day interactive confirmation."
 
 **Actual code in `scripts/run_live.py`:**
 ```python
 parser.add_argument("--dry-run", action="store_true")
-# ... no --live flag, no VMPM_MODE check, no interactive prompt
+# ... no --live flag, no Noema_MODE check, no interactive prompt
 ```
 
-The script has a `--dry-run` flag but **no `--live` flag**. There is no check for `VMPM_MODE=live` environment variable. There is no interactive `y/N` confirmation prompt. The system will trade live as long as it can connect to the broker.
+The script has a `--dry-run` flag but **no `--live` flag**. There is no check for `Noema_MODE=live` environment variable. There is no interactive `y/N` confirmation prompt. The system will trade live as long as it can connect to the broker.
 
 **Remediation:**
 1. Add `--live` CLI flag (required for live trading)
-2. Check `os.getenv("VMPM_MODE") == "live"` 
+2. Check `os.getenv("Noema_MODE") == "live"` 
 3. Add interactive `input("Confirm live trading [y/N]: ")` on first start of day
 4. All three must pass before `MT5Broker` is instantiated
 
@@ -285,7 +285,7 @@ SECURITY.md specifies `RotatingFileHandler(maxBytes=50_000_000, backupCount=10)`
 
 ### ⚪ No DuckDB Journal — INFO
 
-No DuckDB integration exists in the code. `database/models.py` uses SQLAlchemy with a SQLite backend (`sqlite+aiosqlite:///vmpm.db`). The DuckDB journal on LUKS is documented but not implemented.
+No DuckDB integration exists in the code. `database/models.py` uses SQLAlchemy with a SQLite backend (`sqlite+aiosqlite:///noema.db`). The DuckDB journal on LUKS is documented but not implemented.
 
 ### 🔵 LOW: Prometheus Label Safety
 
@@ -301,7 +301,7 @@ No Prometheus metrics are currently exported. The `prometheus-client>=0.21` depe
 
 ### 🔴 CRITICAL: Telegram Auth Not Implemented
 
-**SECURITY.md states:** "Auth on all commands: `TELEGRAM_CHAT_ID` whitelist AND `VMPM_TELEGRAM_SHARED_SECRET` token in the command. Both required."
+**SECURITY.md states:** "Auth on all commands: `TELEGRAM_CHAT_ID` whitelist AND `Noema_TELEGRAM_SHARED_SECRET` token in the command. Both required."
 
 **Actual state:** No Telegram integration code exists anywhere in the codebase. Searched for `telegram`, `chat_id`, `shared_secret`, `bot_token` in all Python files — zero results. The `python-telegram-bot>=21.0` dependency is in `pyproject.toml` but no code uses it.
 
@@ -309,7 +309,7 @@ No Prometheus metrics are currently exported. The `prometheus-client>=0.21` depe
 
 **Remediation:** Implement auth as the first feature of the Telegram integration:
 1. Check `update.effective_chat.id` against `TELEGRAM_CHAT_ID` whitelist
-2. Require `VMPM_TELEGRAM_SHARED_SECRET` as second argument to sensitive commands
+2. Require `Noema_TELEGRAM_SHARED_SECRET` as second argument to sensitive commands
 3. Reject all commands that fail either check
 4. Log rejected auth attempts
 
@@ -337,7 +337,7 @@ path = Path("config/default.yaml")
 ```
 `core/settings.py` uses a hardcoded path:
 ```python
-path = Path("/home/valentinetech/vmpm/config/settings.yaml")
+path = Path("/home/valentinetech/noema/config/settings.yaml")
 ```
 
 Both use `Path()` which normalizes paths. No user-controlled path input that could traverse directories. Low risk.

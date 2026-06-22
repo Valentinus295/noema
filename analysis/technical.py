@@ -1,4 +1,4 @@
-"""Technical analysis module for VMPM.
+"""Technical analysis module for Noema.
 
 Uses TA-Lib (C-speed) for classical indicators and custom logic
 for Smart Money Concepts (SMC).

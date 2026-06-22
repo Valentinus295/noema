@@ -1,4 +1,4 @@
-"""Abstract broker interface for VMPM.
+"""Abstract broker interface for Noema.
 
 All broker implementations (MT5, Paper) must implement this interface.
 """
@@ -104,7 +104,7 @@ class BrokerBase(ABC):
         """Get this week's realized P&L."""
         ...
 
-from vmpm.core.types import Bar
+from noema.core.types import Bar
 
 from typing import Protocol, Sequence
 

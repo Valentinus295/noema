@@ -4,13 +4,13 @@ import argparse
 import asyncio
 import os
 
-from vmpm.agents.orchestrator import Orchestrator, OrchestratorState
-from vmpm.broker.mt5 import MT5Broker
-from vmpm.broker.fbs import FBSBroker
+from noema.agents.orchestrator import Orchestrator, OrchestratorState
+from noema.broker.mt5 import MT5Broker
+from noema.broker.fbs import FBSBroker
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="VMPM Live Trading")
+    parser = argparse.ArgumentParser(description="Noema Live Trading")
     parser.add_argument("--broker", choices=["fxpesa", "fbs"], default="fxpesa")
     parser.add_argument("--symbol", default="EURUSD")
     parser.add_argument("--interval", type=float, default=60.0)

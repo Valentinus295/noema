@@ -1,4 +1,4 @@
-# Valentine Money Printing Machine (VMPM)
+# Noema
 
 Multi-agent forex trading system on MT5. Sniper-style, multi-confirmation, statistically grounded.
 Built to encode the Valentine BSc Economics & Statistics curriculum as live trading logic.
@@ -27,7 +27,7 @@ for which academic concept lives in which file.
 ## Quick start (Linux + Wine)
 
 ```bash
-cd ~/vmpm
+cd ~/noema
 uv sync                                    # installs deps from pyproject.toml
 cp .env.example .env && $EDITOR .env       # fill in MT5 + Telegram + LiteLLM keys
 uv run scripts/fetch_history.py            # cache bar history

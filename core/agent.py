@@ -1,4 +1,4 @@
-"""Base agent class for VMPM — backward compatible + modern support.
+"""Base agent class for Noema — backward compatible + modern support.
 
 This file maintains backward compatibility with existing agents while
 supporting the new modern agent pattern (LLM-powered agents with tools).
@@ -52,7 +52,7 @@ class AgentReport:
 
 
 class Agent:
-    """Base class for all VMPM agents (backward compatible).
+    """Base class for all Noema agents (backward compatible).
 
     Subclasses must implement:
         - name: Unique agent identifier

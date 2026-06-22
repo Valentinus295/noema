@@ -1,4 +1,4 @@
-"""Modern parallel orchestrator for VMPM.
+"""Modern parallel orchestrator for Noema.
 
 Implements the wave-based execution pattern from modern agent systems:
 - Layer 1: DATA agents (parallel, deterministic)
@@ -26,12 +26,12 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.nim_client import NIMClient, ModelTier
-from vmpm.core.modern_agent import (
+from noema.core.nim_client import NIMClient, ModelTier
+from noema.core.modern_agent import (
     AgentReport, AgentType, BaseAgent, DeterministicAgent, LLMAgent,
 )
-from vmpm.core.types import Bar, Direction, Setup
-from vmpm.models.schemas import (
+from noema.core.types import Bar, Direction, Setup
+from noema.models.schemas import (
     CIODecision, DevilsAdvocate, TradeThesis, TradeDirection, TradeParameters,
 )
 
@@ -58,7 +58,7 @@ class PipelineMetrics:
 
 
 class ModernOrchestrator:
-    """Wave-based parallel orchestrator for VMPM.
+    """Wave-based parallel orchestrator for Noema.
 
     Coordinates all agents through a 5-layer pipeline:
     1. Data collection (parallel)

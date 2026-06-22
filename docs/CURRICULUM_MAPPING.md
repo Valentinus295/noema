@@ -1,4 +1,4 @@
-# Curriculum → VMPM Component Mapping
+# Curriculum → Noema Component Mapping
 
 Every academic concept that survives into the v1 build, with the file it lives in.
 Items marked **(v0.1)** ship in the scaffold; **(v0.x)** ship per `ROADMAP.md`.

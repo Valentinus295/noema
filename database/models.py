@@ -1,4 +1,4 @@
-"""Database models for VMPM trade history and knowledge base.
+"""Database models for Noema trade history and knowledge base.
 
 STATUS: PREPARED BUT NOT INTEGRATED.
 These models are defined for future use with DatabaseEngine.
@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import Column, Float, Integer, String, DateTime, Text
-from vmpm.database import Base
+from noema.database import Base
 
 
 class TradeRecord(Base):

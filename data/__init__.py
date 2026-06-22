@@ -1,6 +1,6 @@
-"""Data package for VMPM — market data feeds and economic calendar."""
+"""Data package for Noema — market data feeds and economic calendar."""
 
-from vmpm.data.feed import MarketDataFeed
-from vmpm.data.calendar import EconomicCalendar
+from noema.data.feed import MarketDataFeed
+from noema.data.calendar import EconomicCalendar
 
 __all__ = ["MarketDataFeed", "EconomicCalendar"]

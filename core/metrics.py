@@ -1,4 +1,4 @@
-"""Prometheus metrics and monitoring for VMPM.
+"""Prometheus metrics and monitoring for Noema.
 
 Tracks:
 - Pipeline latency (per phase, per agent)
@@ -33,88 +33,88 @@ except ImportError:
 if PROMETHEUS_AVAILABLE:
     # Pipeline metrics
     PIPELINE_LATENCY = Histogram(
-        "vmpm_pipeline_latency_seconds",
+        "noema_pipeline_latency_seconds",
         "Total pipeline execution time",
         ["symbol", "phase"],
         buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
     )
 
     PIPELINE_DECISIONS = Counter(
-        "vmpm_pipeline_decisions_total",
+        "noema_pipeline_decisions_total",
         "Pipeline trade decisions",
         ["symbol", "decision"],
     )
 
     # LLM metrics
     LLM_CALLS = Counter(
-        "vmpm_llm_calls_total",
+        "noema_llm_calls_total",
         "Total LLM API calls",
         ["agent", "tier", "status"],
     )
 
     LLM_LATENCY = Histogram(
-        "vmpm_llm_latency_seconds",
+        "noema_llm_latency_seconds",
         "LLM API call latency",
         ["agent", "tier"],
         buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
     )
 
     LLM_CACHE = Counter(
-        "vmpm_llm_cache_total",
+        "noema_llm_cache_total",
         "LLM cache hits/misses",
         ["result"],  # hit or miss
     )
 
     # Trade metrics
     TRADES_OPENED = Counter(
-        "vmpm_trades_opened_total",
+        "noema_trades_opened_total",
         "Total trades opened",
         ["symbol", "direction"],
     )
 
     TRADES_CLOSED = Counter(
-        "vmpm_trades_closed_total",
+        "noema_trades_closed_total",
         "Total trades closed",
         ["symbol", "outcome"],  # win, loss, breakeven
     )
 
     TRADE_PNL = Gauge(
-        "vmpm_trade_pnl",
+        "noema_trade_pnl",
         "Trade P&L",
         ["symbol", "trade_id"],
     )
 
     DAILY_PNL = Gauge(
-        "vmpm_daily_pnl",
+        "noema_daily_pnl",
         "Daily P&L percentage",
     )
 
     OPEN_POSITIONS = Gauge(
-        "vmpm_open_positions",
+        "noema_open_positions",
         "Number of open positions",
     )
 
     # System metrics
     MT5_CONNECTED = Gauge(
-        "vmpm_mt5_connected",
+        "noema_mt5_connected",
         "MT5 connection status (1=connected, 0=disconnected)",
     )
 
     SYSTEM_UPTIME = Gauge(
-        "vmpm_uptime_seconds",
+        "noema_uptime_seconds",
         "System uptime in seconds",
     )
 
     SYSTEM_INFO = Info(
-        "vmpm_system",
-        "VMPM system information",
+        "noema_system",
+        "Noema system information",
     )
 
 
 # ── Metrics Collector ────────────────────────────────────────────────
 
 class MetricsCollector:
-    """Collects and exposes VMPM metrics for Prometheus scraping.
+    """Collects and exposes Noema metrics for Prometheus scraping.
 
     Usage:
         metrics = MetricsCollector()

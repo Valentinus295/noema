@@ -1,4 +1,4 @@
-# VMPM Security Hardening
+# Noema Security Hardening
 
 Single source of truth for security controls. Reviewed before any release.
 
@@ -15,7 +15,7 @@ Single source of truth for security controls. Reviewed before any release.
 - RPyC ≥ 6.0, `ThreadedServer`, `allow_public_attrs=False`, `allow_pickle=False`, bind `127.0.0.1`.
 - On RPyC disconnect: halt new entries → reconcile on reconnect → halt + Telegram alert on mismatch. No auto-retry of `order_send`.
 - Single-connection serialization lock around all MT5 calls (asyncio `Lock`).
-- Live trading requires `VMPM_MODE=live` + `--live` CLI flag + first-of-day interactive confirmation.
+- Live trading requires `Noema_MODE=live` + `--live` CLI flag + first-of-day interactive confirmation.
 
 ## LLM (LiteLLM proxy → NVIDIA NIM)
 
@@ -36,13 +36,13 @@ Single source of truth for security controls. Reviewed before any release.
 ## Control surface (Telegram)
 
 - Bot token in `.env`, never in code.
-- Auth on all commands: `TELEGRAM_CHAT_ID` whitelist **AND** `VMPM_TELEGRAM_SHARED_SECRET` token in the command (`/flatten <secret>`). Both required.
+- Auth on all commands: `TELEGRAM_CHAT_ID` whitelist **AND** `Noema_TELEGRAM_SHARED_SECRET` token in the command (`/flatten <secret>`). Both required.
 - Commands available: `/status`, `/positions`, `/flatten <secret>`, `/halt <secret>`, `/resume <secret>`.
 - All command invocations logged to journal with redacted token.
 
 ## Logs + journal
 
-- structlog JSON → `logs/vmpm.log` with `RotatingFileHandler(maxBytes=50_000_000, backupCount=10)`.
+- structlog JSON → `logs/noema.log` with `RotatingFileHandler(maxBytes=50_000_000, backupCount=10)`.
 - DuckDB journal at `data/journal.duckdb`. Trade history is sensitive (edge-leaking + PII-adjacent):
   - File on encrypted home (LUKS) only.
   - Excluded from any cloud-sync folder (`~/Dropbox`, `~/Google Drive`, etc.).

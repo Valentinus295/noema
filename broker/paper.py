@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 
-from vmpm.broker.base import BrokerBase, OrderResult, Position
+from noema.broker.base import BrokerBase, OrderResult, Position
 
 logger = structlog.get_logger(__name__)
 
@@ -75,7 +75,7 @@ class PaperBroker(BrokerBase):
 
     def place_order(
         self, symbol: str, direction: str, volume: float,
-        sl: float = 0, tp: float = 0, magic: int = 0, comment: str = "VMPM"
+        sl: float = 0, tp: float = 0, magic: int = 0, comment: str = "Noema"
     ) -> OrderResult:
         ticket = self._next_ticket
         self._next_ticket += 1

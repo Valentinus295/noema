@@ -1,4 +1,4 @@
-"""PostgreSQL + Redis infrastructure for VMPM.
+"""PostgreSQL + Redis infrastructure for Noema.
 
 Provides:
 - PostgreSQL: Trade history, reflections, audit trail (replaces SQLite)
@@ -215,7 +215,7 @@ class TradeStore:
 # ── Redis (Caching + Pub/Sub) ────────────────────────────────────────
 
 class RedisCache:
-    """Redis-backed caching and pub/sub for VMPM.
+    """Redis-backed caching and pub/sub for Noema.
 
     Provides:
     - Decision caching (faster than in-process cache, shared across processes)
@@ -247,7 +247,7 @@ class RedisCache:
         if not self._redis:
             return None
         try:
-            data = await self._redis.get(f"vmpm:{key}")
+            data = await self._redis.get(f"noema:{key}")
             return json.loads(data) if data else None
         except Exception:
             return None
@@ -256,7 +256,7 @@ class RedisCache:
         if not self._redis:
             return
         try:
-            await self._redis.set(f"vmpm:{key}", json.dumps(value, default=str), ex=ttl)
+            await self._redis.set(f"noema:{key}", json.dumps(value, default=str), ex=ttl)
         except Exception as e:
             logger.warning("redis_set_failed", error=str(e))
 
@@ -266,7 +266,7 @@ class RedisCache:
             return 0
         try:
             pipe = self._redis.pipeline()
-            full_key = f"vmpm:ratelimit:{key}"
+            full_key = f"noema:ratelimit:{key}"
             pipe.incr(full_key)
             pipe.expire(full_key, window)
             results = await pipe.execute()
@@ -279,7 +279,7 @@ class RedisCache:
         if not self._redis:
             return
         try:
-            await self._redis.publish(f"vmpm:{channel}", json.dumps(message, default=str))
+            await self._redis.publish(f"noema:{channel}", json.dumps(message, default=str))
         except Exception as e:
             logger.warning("redis_publish_failed", error=str(e))
 
@@ -289,7 +289,7 @@ class RedisCache:
             return
         try:
             pubsub = self._redis.pubsub()
-            await pubsub.subscribe(f"vmpm:{channel}")
+            await pubsub.subscribe(f"noema:{channel}")
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     data = json.loads(message["data"])

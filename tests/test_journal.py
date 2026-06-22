@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from vmpm.database.journal import TradeJournal
+from noema.database.journal import TradeJournal
 
 
 class TestTradeJournal:

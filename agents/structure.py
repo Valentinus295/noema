@@ -10,9 +10,9 @@ from typing import Any
 import pandas as pd
 import structlog
 
-from vmpm.analysis.technical import TechnicalAnalyzer
-from vmpm.analysis.smc import SMCForecaster
-from vmpm.core.modern_agent import DeterministicAgent, AgentReport
+from noema.analysis.technical import TechnicalAnalyzer
+from noema.analysis.smc import SMCForecaster
+from noema.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +86,7 @@ class MarketStructureAgent(DeterministicAgent):
         )
 
 
-from vmpm.core.types import Bar, Direction, Timeframe, Verdict
+from noema.core.types import Bar, Direction, Timeframe, Verdict
 
 def analyze_structure(symbol: str, bars: list[Bar]) -> Verdict:
     """Pure-function structure analysis for the 7-agent pipeline.
@@ -112,8 +112,8 @@ def analyze_structure(symbol: str, bars: list[Bar]) -> Verdict:
         for b in bars
     ])
 
-    from vmpm.analysis.technical import TechnicalAnalyzer
-    from vmpm.analysis.smc import SMCForecaster
+    from noema.analysis.technical import TechnicalAnalyzer
+    from noema.analysis.smc import SMCForecaster
 
     tech = TechnicalAnalyzer()
     smc = SMCForecaster()

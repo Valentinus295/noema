@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 
-from vmpm.data.feed import MarketDataFeed
-from vmpm.data.calendar import EconomicCalendar
+from noema.data.feed import MarketDataFeed
+from noema.data.calendar import EconomicCalendar
 
 
 # ===========================================================================

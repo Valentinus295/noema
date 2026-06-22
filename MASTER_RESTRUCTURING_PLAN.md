@@ -1,4 +1,4 @@
-# VMPM Master Restructuring Plan
+# Noema Master Restructuring Plan
 
 **Date:** 2026-06-17
 **Based on:** 5 parallel analysis teams (Architecture, Quality, Security, Research, Modern Agent Patterns)
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-VMPM is a well-designed multi-agent forex trading system with strong domain knowledge (ICT Smart Money Concepts, institutional-grade econometrics) but **poor execution**. The codebase has two incompatible architectures running in parallel, zero tests, broken imports, dead code, and only 3 of 11 documented kill-switches actually implemented. The good news: the design documents (ARCHITECTURE.md, SECURITY.md) are excellent — they just need to be implemented.
+Noema is a well-designed multi-agent forex trading system with strong domain knowledge (ICT Smart Money Concepts, institutional-grade econometrics) but **poor execution**. The codebase has two incompatible architectures running in parallel, zero tests, broken imports, dead code, and only 3 of 11 documented kill-switches actually implemented. The good news: the design documents (ARCHITECTURE.md, SECURITY.md) are excellent — they just need to be implemented.
 
 **The core problem:** The system was designed by review committees (security + quality) but the implementation diverged from the design. Two parallel codebases exist — a 17-agent system in `main.py` and a 7-agent system in `agents/orchestrator.py` — that never interact.
 
@@ -43,7 +43,7 @@ VMPM is a well-designed multi-agent forex trading system with strong domain know
 | 14 | Live-mode triple-confirm not coded | Security |
 | 15 | `settings_hash` and `git_sha` hardcoded to empty strings | Security |
 | 16 | Database module orphaned (never instantiated) | Quality |
-| 17 | Hardcoded absolute path `/home/valentinetech/vmpm/` in config | Quality |
+| 17 | Hardcoded absolute path `/home/valentinetech/noema/` in config | Quality |
 
 ### 🟢 What's Working Well
 
@@ -134,7 +134,7 @@ Each agent follows the **ReAct loop** pattern used by Claude Code, Cursor, and O
 
 ```python
 class ModernAgent(ABC):
-    """Base class for VMPM agents — inspired by OpenClaw/Claude Code patterns."""
+    """Base class for Noema agents — inspired by OpenClaw/Claude Code patterns."""
     
     name: str
     role: str
@@ -293,8 +293,8 @@ async def get_narration(bias_score: float, news: str) -> BiasNarration:
 ## Part 4: Package Structure (Target)
 
 ```
-valentine-money-printing-machine/
-├── vmpm/                          # Main package (CREATE THIS)
+noema/
+├── noema/                          # Main package (CREATE THIS)
 │   ├── __init__.py
 │   ├── __main__.py                # CLI entry point
 │   │
@@ -416,7 +416,7 @@ valentine-money-printing-machine/
 
 ### Decision 3: PydanticAI for LLM Layer (Not LangChain/LangGraph)
 - LangChain: overkill, unstable APIs, rejected by the project's own reviews.
-- CrewAI: wrong paradigm (LLM-first, VMPM is deterministic-first).
+- CrewAI: wrong paradigm (LLM-first, Noema is deterministic-first).
 - PydanticAI: type-safe, lightweight, Pydantic-native, model-agnostic. Perfect fit.
 
 ### Decision 4: NVIDIA NIM via OpenAI-Compatible Client
@@ -435,7 +435,7 @@ valentine-money-printing-machine/
 - The orchestrator should be ~200 lines of clean Python, not a framework dependency.
 
 ### Decision 7: Docker Compose for Deployment
-- Main container: VMPM application
+- Main container: Noema application
 - MT5 bridge container: Wine + MT5 terminal + RPyC server
 - Monitoring: Prometheus + Grafana
 - Easy to develop, test, and deploy.

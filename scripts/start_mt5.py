@@ -1,8 +1,8 @@
 """MT5 startup and connection test scripts for Wine on Linux.
 
 Usage:
-    python -m vmpm.scripts.start_mt5          # Start MT5 under Wine
-    python -m vmpm.scripts.test_connection    # Test RPyC bridge connection
+    python -m noema.scripts.start_mt5          # Start MT5 under Wine
+    python -m noema.scripts.test_connection    # Test RPyC bridge connection
 """
 
 from __future__ import annotations

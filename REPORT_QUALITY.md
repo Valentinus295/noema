@@ -1,4 +1,4 @@
-# VMPM Code Quality Review Report
+# Noema Code Quality Review Report
 
 **Date:** 2026-06-17  
 **Scope:** Full codebase audit — 58 Python files, ~6,729 LOC  
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The VMPM (Valentine Money Printing Machine) codebase has **significant structural problems** that go beyond typical early-project technical debt. There are **two parallel, incompatible architectures** running simultaneously, **critical import errors** that would crash at runtime, a **complete absence of tests**, and **documentation that contradicts the actual code**. The system cannot currently run as written.
+The Noema codebase has **significant structural problems** that go beyond typical early-project technical debt. There are **two parallel, incompatible architectures** running simultaneously, **critical import errors** that would crash at runtime, a **complete absence of tests**, and **documentation that contradicts the actual code**. The system cannot currently run as written.
 
 **Severity Scale:** 🔴 Critical | 🟠 Major | 🟡 Moderate | 🔵 Minor
 
@@ -29,7 +29,7 @@ The VMPM (Valentine Money Printing Machine) codebase has **significant structura
 The project is organized into a reasonable directory structure:
 
 ```
-vmpm/
+noema/
 ├── agents/          (21 files, 2,458 LOC) — 17 agents + orchestrator + helpers
 ├── analysis/        (5 files, 1,725 LOC)  — econometrics, technical, SMC, candlestick, fundamental
 ├── broker/          (4 files, 676 LOC)    — base, mt5, fbs, paper
@@ -46,7 +46,7 @@ vmpm/
 
 **Issues Found:**
 
-- 🟠 **Duplicate orchestration layers**: `main.py` (425 LOC) contains a `VMPMOrchestrator` class that runs the 17-agent pipeline. `agents/orchestrator.py` (126 LOC) contains a *different* `Orchestrator` class that runs a 7-agent pipeline. These are completely separate, incompatible systems.
+- 🟠 **Duplicate orchestration layers**: `main.py` (425 LOC) contains a `NoemaOrchestrator` class that runs the 17-agent pipeline. `agents/orchestrator.py` (126 LOC) contains a *different* `Orchestrator` class that runs a 7-agent pipeline. These are completely separate, incompatible systems.
 - 🟠 **Duplicate indicator modules**: `indicators/rsi.py`, `indicators/macd.py`, `indicators/candlestick.py` are pure-function versions used by the 7-agent system. `analysis/technical.py` and `analysis/candlestick.py` are class-based versions used by the 17-agent system. Both compute the same indicators differently.
 - 🟡 **Duplicate data models**: `models/trade.py` defines `Trade` dataclass. `database/models.py` defines `TradeRecord` SQLAlchemy model. `broker/base.py` defines `Position` dataclass. `models/position.py` defines `PositionInfo` dataclass. Four different representations of overlapping concepts.
 
@@ -92,7 +92,7 @@ Generally consistent with Python conventions:
 - ✅ All modules import and use `structlog` consistently
 - ✅ Good use of structured logging with keyword arguments: `self._logger.info("analysis_complete", signal=report.signal, ...)`
 - ✅ Agent base class binds agent name: `self._logger = logger.bind(agent=self.name)`
-- 🟠 **structlog configured in `__init__` of `VMPMOrchestrator`** — this means every instantiation reconfigures logging. Should be done once at startup.
+- 🟠 **structlog configured in `__init__` of `NoemaOrchestrator`** — this means every instantiation reconfigures logging. Should be done once at startup.
 - 🟡 `agents/orchestrator.py` uses bare `print()` instead of structlog for error reporting
 - 🔵 No log level differentiation — most things are logged at INFO
 
@@ -106,12 +106,12 @@ This is the single most important finding. The codebase contains **two completel
 
 **Architecture A — 17-Agent System (`main.py`):**
 - Uses `core/agent.Agent` base class
-- Uses `core/config.VMPMConfig` (dataclasses)
+- Uses `core/config.NoemaConfig` (dataclasses)
 - Uses `core/message_bus.MessageBus`
 - Uses `core/state_machine.TradingPipeline`
 - Uses `analysis/*` modules (class-based)
 - Uses `broker/base.BrokerBase` (ABC)
-- Orchestrated by `main.py:VMPMOrchestrator`
+- Orchestrated by `main.py:NoemaOrchestrator`
 
 **Architecture B — 7-Agent System (`agents/orchestrator.py`):**
 - Uses pure functions, NOT the Agent base class
@@ -124,25 +124,25 @@ This is the single most important finding. The codebase contains **two completel
 - `CLAUDE.md` documents 17 agents with their files
 - `docs/ARCHITECTURE.md` §1 pins 7 agents as the "final" roster
 - `main.py` imports all 17 agents from `agents/*.py`
-- `agents/orchestrator.py` imports `from vmpm.agents.trend import analyze_trend` — a pure function, not the `MarketStructureAgent` class
-- `agents/confluence.py` imports from `vmpm.indicators.rsi` and `vmpm.indicators.candlestick` — completely separate from the `analysis/` modules
+- `agents/orchestrator.py` imports `from noema.agents.trend import analyze_trend` — a pure function, not the `MarketStructureAgent` class
+- `agents/confluence.py` imports from `noema.indicators.rsi` and `noema.indicators.candlestick` — completely separate from the `analysis/` modules
 
 ### 🔴 CRITICAL: Broken Imports — System Cannot Run
 
 Multiple files import symbols that **do not exist** in their source modules:
 
-1. **`broker/fbs.py` line 13**: `from vmpm.broker.base import BrokerProtocol, Bar, Tick, AccountState, OrderRequest, Position`
+1. **`broker/fbs.py` line 13**: `from noema.broker.base import BrokerProtocol, Bar, Tick, AccountState, OrderRequest, Position`
    - `BrokerProtocol` does not exist in `broker/base.py` — only `BrokerBase` (ABC) exists
    - `Bar`, `Tick`, `AccountState`, `OrderRequest` do not exist in `broker/base.py`
    - `Position` exists but as a dataclass with different fields than what FBSBroker expects
 
-2. **`agents/orchestrator.py` line 22**: `from vmpm.broker.base import BrokerProtocol, OrderRequest`
+2. **`agents/orchestrator.py` line 22**: `from noema.broker.base import BrokerProtocol, OrderRequest`
    - Same issue — `BrokerProtocol` and `OrderRequest` don't exist
 
-3. **`agents/fundamental.py` line 14**: `from vmpm.broker.base import BrokerProtocol`
+3. **`agents/fundamental.py` line 14**: `from noema.broker.base import BrokerProtocol`
    - Same issue
 
-4. **`agents/orchestrator.py` line 16**: `from vmpm.core.types import Bar, Bias, Direction, Setup, Verdict`
+4. **`agents/orchestrator.py` line 16**: `from noema.core.types import Bar, Bias, Direction, Setup, Verdict`
    - `Bar` does not exist in `core/types.py` — only `Bias`, `Verdict`, `Setup`, `Direction`, `Timeframe` are defined
 
 5. **`scripts/run_live.py`**: Instantiates `MT5Broker` with `host`, `port`, `password` constructor args — but `MT5Broker.__init__` in `broker/mt5.py` takes `config: Any`, not those kwargs.
@@ -156,10 +156,10 @@ Two completely separate config systems exist:
 | Aspect | `core/config.py` | `core/settings.py` |
 |---|---|---|
 | **Framework** | Plain dataclasses | Pydantic BaseModel |
-| **Loader** | `load_config()` → `VMPMConfig` | `load_settings()` → `Settings` |
+| **Loader** | `load_config()` → `NoemaConfig` | `load_settings()` → `Settings` |
 | **Risk config** | `RiskConfig(risk_per_trade=0.01)` | `RiskConfig(risk_pct_per_trade=0.25)` |
 | **Pairs** | 7 pairs (EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, NZDUSD, USDCAD) | 5 pairs (EURUSD, GBPUSD, USDJPY, AUDUSD, XAUUSD) |
-| **Default path** | `config/default.yaml` | `/home/valentinetech/vmpm/config/settings.yaml` (hardcoded absolute!) |
+| **Default path** | `config/default.yaml` | `/home/valentinetech/noema/config/settings.yaml` (hardcoded absolute!) |
 | **Used by** | 17-agent system (`main.py`) | 7-agent system (via `settings.yaml`) |
 
 **The risk parameters are dangerously different:**
@@ -171,7 +171,7 @@ If the wrong config is loaded, a single trade could risk 25% of capital instead 
 ### 🟠 Message Bus — Partially Dead Code
 
 The `MessageBus` in `core/message_bus.py` is fully implemented (115 LOC) but:
-- `VMPMOrchestrator` creates it and passes it to agents
+- `NoemaOrchestrator` creates it and passes it to agents
 - Agents call `self.message_bus.register()` in `start()` but **no agent subscribes to any topics**
 - No agent calls `self.publish()` anywhere in the codebase
 - The 7-agent system (`agents/orchestrator.py`) doesn't use the message bus at all
@@ -402,12 +402,12 @@ def test_position_size_within_risk(balance, risk_pct):
 |---|---|---|---|
 | `CLAUDE.md` | 17 agents | Code has 17 agent classes + separate 7-function system | 🔴 |
 | `docs/ARCHITECTURE.md` §1 | 7 agents (final) | 17 agent classes still exist and are used by `main.py` | 🔴 |
-| `CLAUDE.md` | `python -m vmpm.main --mode paper` | Module structure doesn't support this (no `vmpm/` package dir) | 🟠 |
+| `CLAUDE.md` | `python -m noema.main --mode paper` | Module structure doesn't support this (no `noema/` package dir) | 🟠 |
 | `docs/ARCHITECTURE.md` §2 | FundamentalBiasAgent: Python computes, LLM narrates | `agents/fundamental.py` has no LLM integration; hardcoded yields | 🟠 |
 | `docs/ARCHITECTURE.md` §9 | `BrokerProtocol` (Pydantic/typing.Protocol) | Does not exist in `broker/base.py` — only `BrokerBase` (ABC) | 🟠 |
 | `docs/ARCHITECTURE.md` §10 | Guardian heartbeat every 5s, ExecutionAgent checks | Guardian heartbeat exists but ExecutionAgent never checks it | 🟡 |
 | `config/settings.yaml` | 5 pairs (EURUSD, GBPUSD, USDJPY, AUDUSD, XAUUSD) | `core/config.py` default has 7 pairs (includes USDCHF, NZDUSD, USDCAD, excludes XAUUSD) | 🟡 |
-| `pyproject.toml` | `packages = ["vmpm"]` | No `vmpm/` directory — code lives at repo root | 🟠 |
+| `pyproject.toml` | `packages = ["noema"]` | No `noema/` directory — code lives at repo root | 🟠 |
 | `CLAUDE.md` | Version 1.0.0 | `pyproject.toml` says 0.1.0 | 🔵 |
 
 ### 5.4 Dead Code Detection
@@ -472,7 +472,7 @@ def test_position_size_within_risk(balance, risk_pct):
 
 1. Delete `core/config.py` entirely
 2. Move all settings into `config/settings.yaml` with Pydantic validation via `core/settings.py`
-3. Remove hardcoded absolute path: `/home/valentinetech/vmpm/config/settings.yaml` → `Path("config/settings.yaml")`
+3. Remove hardcoded absolute path: `/home/valentinetech/noema/config/settings.yaml` → `Path("config/settings.yaml")`
 4. Unify pair lists: use `symbols.yaml` as single source of truth
 5. Add `aiosqlite` and `sqlalchemy` to `pyproject.toml` if database module is kept, or delete it
 
@@ -561,15 +561,15 @@ Follow the test plan in §3. Start with import smoke tests (they'll reveal all t
 
 | File | Line | Import | Problem |
 |---|---|---|---|
-| `broker/fbs.py` | 13 | `from vmpm.broker.base import BrokerProtocol` | Does not exist |
-| `broker/fbs.py` | 13 | `from vmpm.broker.base import Bar` | Does not exist |
-| `broker/fbs.py` | 13 | `from vmpm.broker.base import Tick` | Does not exist |
-| `broker/fbs.py` | 13 | `from vmpm.broker.base import AccountState` | Does not exist |
-| `broker/fbs.py` | 13 | `from vmpm.broker.base import OrderRequest` | Does not exist |
-| `agents/orchestrator.py` | 16 | `from vmpm.core.types import Bar` | Does not exist |
-| `agents/orchestrator.py` | 22 | `from vmpm.broker.base import BrokerProtocol` | Does not exist |
-| `agents/orchestrator.py` | 22 | `from vmpm.broker.base import OrderRequest` | Does not exist |
-| `agents/fundamental.py` | 14 | `from vmpm.broker.base import BrokerProtocol` | Does not exist |
+| `broker/fbs.py` | 13 | `from noema.broker.base import BrokerProtocol` | Does not exist |
+| `broker/fbs.py` | 13 | `from noema.broker.base import Bar` | Does not exist |
+| `broker/fbs.py` | 13 | `from noema.broker.base import Tick` | Does not exist |
+| `broker/fbs.py` | 13 | `from noema.broker.base import AccountState` | Does not exist |
+| `broker/fbs.py` | 13 | `from noema.broker.base import OrderRequest` | Does not exist |
+| `agents/orchestrator.py` | 16 | `from noema.core.types import Bar` | Does not exist |
+| `agents/orchestrator.py` | 22 | `from noema.broker.base import BrokerProtocol` | Does not exist |
+| `agents/orchestrator.py` | 22 | `from noema.broker.base import OrderRequest` | Does not exist |
+| `agents/fundamental.py` | 14 | `from noema.broker.base import BrokerProtocol` | Does not exist |
 | `scripts/run_live.py` | 38-44 | `MT5Broker(host=..., port=..., password=...)` | Wrong constructor signature |
 
 ## Appendix B: Dependency Usage Matrix

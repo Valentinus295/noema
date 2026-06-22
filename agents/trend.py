@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from vmpm.core.types import Bar, Direction, Timeframe, Verdict
+from noema.core.types import Bar, Direction, Timeframe, Verdict
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-"""Smart Money Concepts (SMC) analysis for VMPM.
+"""Smart Money Concepts (SMC) analysis for Noema.
 
 Custom implementations for institutional trading concepts:
 - Order Blocks (Bullish & Bearish)

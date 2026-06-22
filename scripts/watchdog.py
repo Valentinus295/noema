@@ -1,6 +1,6 @@
 """Watchdog process — external supervisor that flattens on crash.
 
-Runs as a separate systemd service. Monitors the main VMPM process.
+Runs as a separate systemd service. Monitors the main Noema process.
 If the main process dies or hangs, the watchdog:
 1. Flattens all open positions
 2. Sends Telegram alert
@@ -26,15 +26,15 @@ logger = structlog.get_logger(__name__)
 
 
 class Watchdog:
-    """External process supervisor for VMPM.
+    """External process supervisor for Noema.
 
-    Monitors the main VMPM process and flattens positions on failure.
+    Monitors the main Noema process and flattens positions on failure.
     """
 
     def __init__(
         self,
-        main_pid_file: str = "/tmp/vmpm.pid",
-        heartbeat_file: str = "/tmp/vmpm_heartbeat",
+        main_pid_file: str = "/tmp/noema.pid",
+        heartbeat_file: str = "/tmp/noema_heartbeat",
         heartbeat_timeout: int = 60,
         flatten_command: str | None = None,
         telegram_bot_token: str = "",
@@ -70,7 +70,7 @@ class Watchdog:
         if not self._is_main_alive():
             logger.critical("main_process_dead", action="flattening")
             self._flatten_all_positions()
-            self._send_alert("VMPM main process DIED. All positions flattened.")
+            self._send_alert("Noema main process DIED. All positions flattened.")
             return
 
         # 2. Check heartbeat freshness
@@ -81,10 +81,10 @@ class Watchdog:
             if not self._is_heartbeat_fresh():
                 logger.critical("heartbeat_timeout", action="flattening")
                 self._flatten_all_positions()
-                self._send_alert("VMPM heartbeat TIMEOUT. Positions flattened.")
+                self._send_alert("Noema heartbeat TIMEOUT. Positions flattened.")
 
     def _is_main_alive(self) -> bool:
-        """Check if the main VMPM process is still running."""
+        """Check if the main Noema process is still running."""
         if not self.main_pid_file.exists():
             return True  # No PID file = not managed by watchdog
 
@@ -165,7 +165,7 @@ class Watchdog:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
             httpx.post(url, json={
                 "chat_id": self.telegram_chat_id,
-                "text": f"🚨 VMPM WATCHDOG ALERT\n\n{message}\n\nTime: {datetime.now(timezone.utc).isoformat()}",
+                "text": f"🚨 Noema WATCHDOG ALERT\n\n{message}\n\nTime: {datetime.now(timezone.utc).isoformat()}",
             }, timeout=10, verify=True)
         except Exception as exc:
             logger.error("telegram_alert_failed", error=str(exc))
@@ -176,12 +176,12 @@ class Watchdog:
         self._running = False
 
 
-def write_pid_file(pid_file: str = "/tmp/vmpm.pid") -> None:
+def write_pid_file(pid_file: str = "/tmp/noema.pid") -> None:
     """Write current PID to file for watchdog monitoring."""
     Path(pid_file).write_text(str(os.getpid()))
 
 
-def update_heartbeat(heartbeat_file: str = "/tmp/vmpm_heartbeat") -> None:
+def update_heartbeat(heartbeat_file: str = "/tmp/noema_heartbeat") -> None:
     """Update heartbeat file timestamp."""
     Path(heartbeat_file).touch()
 

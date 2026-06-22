@@ -1,4 +1,4 @@
-"""Pydantic schemas for all LLM-structured outputs in VMPM.
+"""Pydantic schemas for all LLM-structured outputs in Noema.
 
 Every LLM response is parsed into a Pydantic model. No free-text trust.
 """

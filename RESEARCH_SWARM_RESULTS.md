@@ -1,4 +1,4 @@
-# Research Swarm Results: Language & Tech Stack for VMPM
+# Research Swarm Results: Language & Tech Stack for Noema
 
 **Date:** 2026-06-17
 **Methodology:** 5 parallel research tracks studying Python, Go, Rust, TypeScript, LLM ecosystem, MT5 integration, and production trading systems.
@@ -27,7 +27,7 @@
 ### Python 3.14 Free-Threaded Mode (No-GIL)
 - **Status as of Oct 2025**: Experimental, NOT production-ready
 - Free-threaded mode shows ~5-20% improvement for CPU-bound multi-threaded work
-- For I/O-bound work (like VMPM): **minimal benefit** — asyncio already handles concurrency fine
+- For I/O-bound work (like Noema): **minimal benefit** — asyncio already handles concurrency fine
 - Some libraries (NumPy, pandas) have compatibility issues with free-threaded mode
 - **Recommendation**: Don't depend on it. asyncio is sufficient.
 
@@ -191,7 +191,7 @@
 - Financial Information eXchange protocol — industry standard
 - Used by institutional traders, not typically retail
 - Libraries exist for Python (`quickfix`), Java, C++
-- **Not relevant for VMPM at current scale**
+- **Not relevant for Noema at current scale**
 
 ---
 
@@ -228,7 +228,7 @@ Institutional:   C++/Java/Rust execution + Python research
 HFT:             C++/FPGA, no Python at all
 ```
 
-**VMPM is at the "Retail/Startup" stage.** The graduation to Rust/C++ only matters when Python becomes the bottleneck — which it won't for forex trading on H1+ timeframes.
+**Noema is at the "Retail/Startup" stage.** The graduation to Rust/C++ only matters when Python becomes the bottleneck — which it won't for forex trading on H1+ timeframes.
 
 ### LLM-Powered Trading Systems (2025-2026)
 - **All known implementations use Python** — because the LLM ecosystem is Python-first

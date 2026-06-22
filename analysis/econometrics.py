@@ -1,4 +1,4 @@
-"""Econometrics engine — the statistical brain of VMPM.
+"""Econometrics engine — the statistical brain of Noema.
 
 Leverages your economics and statistics background:
 - ARIMA/GARCH for volatility forecasting

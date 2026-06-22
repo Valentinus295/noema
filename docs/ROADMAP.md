@@ -1,4 +1,4 @@
-# VMPM Roadmap
+# Noema Roadmap
 
 Honest scoping per quality review §Major (#11).
 

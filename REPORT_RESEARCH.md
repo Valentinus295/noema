@@ -1,8 +1,8 @@
-# VMPM Agentic Systems Research Report
+# Noema Agentic Systems Research Report
 
 **Date:** 2026-06-17  
 **Scope:** Architecture, frameworks, LLM integration, and infrastructure for a multi-agent forex trading system  
-**Repository:** `valentine-money-printing-machine` (v0.1.0, ~6,700 lines Python)
+**Repository:** `noema` (v0.1.0, ~6,700 lines Python)
 
 ---
 
@@ -39,7 +39,7 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 
 *Sources: [Langfuse Agent Comparison (Mar 2025)](https://langfuse.com/blog/2025-03-19-ai-agent-comparison), [ZenML LangGraph Alternatives (Jun 2025)](https://www.zenml.io/blog/langgraph-alternatives)*
 
-### 1.2 Deep Evaluation for VMPM
+### 1.2 Deep Evaluation for Noema
 
 #### LangChain / LangGraph — ⚠️ Overkill, High Risk
 
@@ -51,14 +51,14 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 - LangSmith integration for observability
 - Pydantic-based structured output
 
-**Cons (critical for VMPM):**
+**Cons (critical for Noema):**
 - **API instability:** LangChain's APIs change week-to-week. Tutorials break within months. Multiple production teams report constant breakage ([ZenML, 2025](https://www.zenml.io/blog/langgraph-alternatives)). For a trading system managing real money, this is unacceptable.
 - **Over-abstracted:** 5+ layers of indirection between your code and the LLM call. Debugging a bad trade signal through LangGraph's state objects, sub-graphs, and decorators is nightmarish.
-- **Heavy dependency tree:** LangChain pulls in hundreds of transitive dependencies. VMPM's current lean stack (`structlog`, `pydantic`, `polars`, `duckdb`) would be polluted.
+- **Heavy dependency tree:** LangChain pulls in hundreds of transitive dependencies. Noema's current lean stack (`structlog`, `pydantic`, `polars`, `duckdb`) would be polluted.
 - **Performance overhead:** Single-threaded by default; true concurrency requires LangGraph Server (managed cloud or self-hosted).
-- **Already rejected by VMPM:** The `pyproject.toml` puts `langgraph>=0.4` in the `v2` optional dependency group with the note: *"Quality + security delta reviews rejected these as v0.x core deps."* This was the right call.
+- **Already rejected by Noema:** The `pyproject.toml` puts `langgraph>=0.4` in the `v2` optional dependency group with the note: *"Quality + security delta reviews rejected these as v0.x core deps."* This was the right call.
 
-**Verdict: Do NOT adopt.** The overhead-to-value ratio is terrible for a trading system. VMPM needs determinism and speed, not framework abstractions.
+**Verdict: Do NOT adopt.** The overhead-to-value ratio is terrible for a trading system. Noema needs determinism and speed, not framework abstractions.
 
 #### CrewAI — ❌ Not Recommended
 
@@ -70,12 +70,12 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 - Good for brainstorming/research workflows
 
 **Cons:**
-- **Designed for LLM-first workflows:** VMPM's agents are 90% deterministic (TA-Lib, polars, duckdb). Only the fundamental analysis agent needs LLM. CrewAI assumes every agent is an LLM agent.
-- **Opinionated orchestration:** CrewAI decides how agents talk to each other. VMPM needs explicit control over the 12-phase pipeline.
+- **Designed for LLM-first workflows:** Noema's agents are 90% deterministic (TA-Lib, polars, duckdb). Only the fundamental analysis agent needs LLM. CrewAI assumes every agent is an LLM agent.
+- **Opinionated orchestration:** CrewAI decides how agents talk to each other. Noema needs explicit control over the 12-phase pipeline.
 - **No backpressure or latency guarantees:** Not designed for time-critical systems.
 - **Adds dependency weight** for minimal benefit.
 
-**Verdict: Wrong paradigm.** CrewAI is for "team of LLM agents collaborating." VMPM is "team of deterministic analysts with optional LLM narration."
+**Verdict: Wrong paradigm.** CrewAI is for "team of LLM agents collaborating." Noema is "team of deterministic analysts with optional LLM narration."
 
 #### AutoGen (Microsoft) — ❌ Not Recommended
 
@@ -87,9 +87,9 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 - Supports tool use and code execution
 
 **Cons:**
-- **Conversation-based overhead:** Every interaction is a "chat message." For VMPM's `AgentReport` with structured `signal`, `confidence`, `data` fields, this is unnecessary wrapping.
+- **Conversation-based overhead:** Every interaction is a "chat message." For Noema's `AgentReport` with structured `signal`, `confidence`, `data` fields, this is unnecessary wrapping.
 - **Latency:** Multi-turn conversations add latency. Trading decisions need sub-second.
-- **Complexity:** Group chat manager, speaker selection, conversation summarization — all overhead VMPM doesn't need.
+- **Complexity:** Group chat manager, speaker selection, conversation summarization — all overhead Noema doesn't need.
 
 **Verdict: Wrong abstraction level.** Interesting for research, not for production trading.
 
@@ -103,7 +103,7 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 - Good for function calling / tool use
 
 **Cons:**
-- OpenAI-centric (VMPM wants NVIDIA NIM)
+- OpenAI-centric (Noema wants NVIDIA NIM)
 - Still evolving rapidly
 
 **Verdict: Could work for the LLM narration layer only**, but adds an OpenAI dependency you'd need to abstract away. Prefer using the OpenAI-compatible client directly.
@@ -113,7 +113,7 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 **What it is:** A minimal, type-safe agent framework built by the Pydantic team. Agents are Python functions with Pydantic-validated inputs/outputs. ([pydantic.dev](https://pydantic.dev/))
 
 **Pros:**
-- **Native Pydantic integration:** VMPM already uses Pydantic 2.6+ everywhere. PydanticAI fits like a glove.
+- **Native Pydantic integration:** Noema already uses Pydantic 2.6+ everywhere. PydanticAI fits like a glove.
 - **Type-safe structured output:** Define your output schema as a Pydantic model, get validated results. No prompt gymnastics.
 - **Model-agnostic:** Works with OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint (NVIDIA NIM).
 - **Lightweight:** Minimal dependencies, no graph abstractions, no state machines. Just Python functions with type validation.
@@ -126,7 +126,7 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 - No built-in multi-agent orchestration (you provide your own)
 - No graph/workflow abstraction
 
-**Verdict: Best fit for VMPM.** Use PydanticAI as the LLM interaction layer for the FundamentalBiasAgent and Devil's Advocate LLM mode. Keep the rest of the system as-is (deterministic agents). PydanticAI adds ~2 dependencies and provides exactly what's needed: type-safe LLM calls with structured output.
+**Verdict: Best fit for Noema.** Use PydanticAI as the LLM interaction layer for the FundamentalBiasAgent and Devil's Advocate LLM mode. Keep the rest of the system as-is (deterministic agents). PydanticAI adds ~2 dependencies and provides exactly what's needed: type-safe LLM calls with structured output.
 
 #### Agno (formerly PhiData) — ⚠️ Viable Alternative
 
@@ -141,21 +141,21 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 **Cons:**
 - Less mature than PydanticAI for type safety
 - Team orchestration is still opinionated
-- Adds abstractions VMPM doesn't need
+- Adds abstractions Noema doesn't need
 
-**Verdict: Good framework, but PydanticAI is better for VMPM's needs** because VMPM already has its own orchestration and just needs a clean LLM interface.
+**Verdict: Good framework, but PydanticAI is better for Noema's needs** because Noema already has its own orchestration and just needs a clean LLM interface.
 
 #### LlamaIndex — ❌ Not Needed Now
 
 **What it is:** Framework for connecting LLMs to external data (RAG).
 
-**Verdict:** VMPM's `KnowledgeBase` is a JSON file of trade outcomes, not a vector database. If RAG is needed later (e.g., for economic research documents), LlamaIndex could be added, but it's not needed for the current scope.
+**Verdict:** Noema's `KnowledgeBase` is a JSON file of trade outcomes, not a vector database. If RAG is needed later (e.g., for economic research documents), LlamaIndex could be added, but it's not needed for the current scope.
 
 #### BAML (Boundary ML) — ✅ Worth Considering for Structured Output
 
 **What it is:** A domain-specific language for defining typed LLM functions. You define types and functions in `.baml` files, and it generates type-safe Python clients. ([github.com/BoundaryML/baml](https://github.com/BoundaryML/baml))
 
-**Why it matters for VMPM:** The agentic trading system article ([Pau Labarta Bajo, May 2025](https://paulabartabajo.substack.com/p/lets-build-an-agentic-trading-platform)) specifically recommends BAML over LangChain for financial sentiment extraction because it makes "fast prompt experimentation easier" and provides guaranteed structured output.
+**Why it matters for Noema:** The agentic trading system article ([Pau Labarta Bajo, May 2025](https://paulabartabajo.substack.com/p/lets-build-an-agentic-trading-platform)) specifically recommends BAML over LangChain for financial sentiment extraction because it makes "fast prompt experimentation easier" and provides guaranteed structured output.
 
 **Verdict: Strong alternative to PydanticAI for the structured output use case.** Choose one: BAML if you want a dedicated prompt engineering workflow, PydanticAI if you want to stay in pure Python.
 
@@ -163,7 +163,7 @@ The agentic framework ecosystem has exploded since 2024. The major contenders as
 
 | Component | Recommendation | Rationale |
 |-----------|---------------|-----------|
-| Orchestration | **Keep hand-rolled asyncio** | VMPM's sequential pipeline + MessageBus is appropriate for 7-17 agents |
+| Orchestration | **Keep hand-rolled asyncio** | Noema's sequential pipeline + MessageBus is appropriate for 7-17 agents |
 | LLM calls | **PydanticAI** | Type-safe, lightweight, Pydantic-native, model-agnostic |
 | Structured output | **Pydantic models** (via PydanticAI) | Already in the stack, zero migration |
 | Multi-agent coordination | **Keep MessageBus** | Add backpressure + optional persistence (see §3) |
@@ -200,7 +200,7 @@ From NVIDIA's API Catalog, the most relevant models for financial analysis:
 
 ### 2.3 Integration: OpenAI-Compatible Client
 
-NVIDIA NIM endpoints are **OpenAI-compatible**. This means VMPM's existing `openai>=1.40` dependency works directly:
+NVIDIA NIM endpoints are **OpenAI-compatible**. This means Noema's existing `openai>=1.40` dependency works directly:
 
 ```python
 from openai import AsyncOpenAI
@@ -288,7 +288,7 @@ Degraded: Log warning, continue pipeline without fundamental narration
 
 ### 2.5 LiteLLM Proxy as Router/Aggregator
 
-**LiteLLM** is a Python library/proxy that provides a unified interface to 100+ LLM providers. For VMPM:
+**LiteLLM** is a Python library/proxy that provides a unified interface to 100+ LLM providers. For Noema:
 
 **When to use LiteLLM:**
 - If you need to route across multiple providers (NVIDIA NIM + OpenAI + Anthropic)
@@ -296,7 +296,7 @@ Degraded: Log warning, continue pipeline without fundamental narration
 - If you need usage tracking across models
 
 **When NOT to use LiteLLM:**
-- VMPM only needs NVIDIA NIM → direct OpenAI client is simpler
+- Noema only needs NVIDIA NIM → direct OpenAI client is simpler
 - Adds a proxy layer (latency + complexity)
 - Another dependency to maintain
 
@@ -312,12 +312,12 @@ NVIDIA API Catalog pricing (approximate, 2025–2026):
 | Llama 3.3 70B | $0.80 | $0.80 |
 | Nemotron Super 120B | $1.20 | $1.20 |
 
-**Estimated daily usage for VMPM:**
+**Estimated daily usage for Noema:**
 - 5 pairs × 4 analyses/day × ~2K tokens each = ~40K tokens/day
 - At Llama 3.3 70B rates: ~$0.03/day → ~$1/month
 - With Devil's Advocate LLM mode: ~2x → ~$2/month
 
-**NVIDIA free tier:** build.nvidia.com offers 1,000 free API calls/day — more than enough for VMPM's current scale.
+**NVIDIA free tier:** build.nvidia.com offers 1,000 free API calls/day — more than enough for Noema's current scale.
 
 ---
 
@@ -325,7 +325,7 @@ NVIDIA API Catalog pricing (approximate, 2025–2026):
 
 ### 3.1 Pattern Comparison
 
-| Pattern | Latency | Durability | Complexity | VMPM Fit |
+| Pattern | Latency | Durability | Complexity | Noema Fit |
 |---------|---------|-----------|------------|----------|
 | **In-process Pub/Sub** (current) | ~0ms | ❌ None | Low | ✅ Good |
 | **Redis Pub/Sub** | ~1ms | ❌ None | Medium | ⚠️ Overkill |
@@ -338,7 +338,7 @@ NVIDIA API Catalog pricing (approximate, 2025–2026):
 
 ### 3.2 Current Architecture Assessment
 
-VMPM's current `MessageBus` is an in-process async pub/sub with `asyncio.Queue`. This is **appropriate for the current scale** (7-17 agents, single process). The issues identified in `REPORT_ARCHITECTURE.md` are:
+Noema's current `MessageBus` is an in-process async pub/sub with `asyncio.Queue`. This is **appropriate for the current scale** (7-17 agents, single process). The issues identified in `REPORT_ARCHITECTURE.md` are:
 
 1. **No backpressure** — unbounded queue
 2. **No persistence** — fire-and-forget
@@ -372,7 +372,7 @@ For a trading system with 7-17 agents, the optimal pattern is:
 
 **No, not yet.** Here's why:
 
-- **Single process:** VMPM runs as a single Python process. NATS/Redis add network hops.
+- **Single process:** Noema runs as a single Python process. NATS/Redis add network hops.
 - **No horizontal scaling need:** 17 agents in one process is fine.
 - **Audit trail:** Instead of Redis Streams, use DuckDB (already in the stack) for event persistence.
 
@@ -444,13 +444,13 @@ class DevilsAdvocateCritique(BaseModel):
 ```
 
 **Why this matters:**
-- VMPM's `AgentReport.signal` must be "BULLISH", "BEARISH", or "NEUTRAL" — no room for hallucinated strings
+- Noema's `AgentReport.signal` must be "BULLISH", "BEARISH", or "NEUTRAL" — no room for hallucinated strings
 - Pydantic validation catches malformed LLM output before it reaches the trading pipeline
 - Structured output enables deterministic downstream processing
 
 ### 4.2 Function Calling / Tool Use
 
-**Should VMPM agents have tools?** Yes, but selectively:
+**Should Noema agents have tools?** Yes, but selectively:
 
 | Agent | Tools | Rationale |
 |-------|-------|-----------|
@@ -478,7 +478,7 @@ async def get_economic_calendar(ctx: RunContext[Depends], currency: str) -> list
 
 ### 4.3 RAG for Economic Knowledge Base
 
-**Current state:** VMPM's `KnowledgeBase` (`models/knowledge.py`) is a JSON file tracking trade outcomes. It's not a knowledge base in the RAG sense — it's a statistics accumulator.
+**Current state:** Noema's `KnowledgeBase` (`models/knowledge.py`) is a JSON file tracking trade outcomes. It's not a knowledge base in the RAG sense — it's a statistics accumulator.
 
 **When RAG becomes valuable:**
 - If you want to feed economic research papers, central bank statements, or analyst reports to the LLM
@@ -612,7 +612,7 @@ class ModelRouter:
 
 *Source: [Firecrawl Best LLM Observability Tools 2026](https://www.firecrawl.dev/blog/best-llm-observability-tools)*
 
-### 5.2 Recommended Stack for VMPM
+### 5.2 Recommended Stack for Noema
 
 **Layer 1: System Metrics → Prometheus + Grafana**
 - Already have `prometheus-client>=0.21` in dependencies
@@ -620,7 +620,7 @@ class ModelRouter:
 - Grafana dashboards for real-time monitoring
 
 **Layer 2: Structured Logging → structlog (already in stack)**
-- VMPM already uses structlog — excellent
+- Noema already uses structlog — excellent
 - Add correlation IDs to trace a single trade decision across all 17 agents
 - Log to JSON for machine parsing, console for human readability
 
@@ -662,7 +662,7 @@ logger.info(
 
 ## 6. Testing AI Agent Systems
 
-### 6.1 Testing Strategy for VMPM
+### 6.1 Testing Strategy for Noema
 
 | Layer | Approach | Tools |
 |-------|----------|-------|
@@ -759,7 +759,7 @@ async def test_execution_agent_handles_broker_failure(flaky_broker):
 
 ### 6.5 Statistical Validation
 
-VMPM already has SPRT (Sequential Probability Ratio Test) and bootstrap in the stack. These are **the right choices**:
+Noema already has SPRT (Sequential Probability Ratio Test) and bootstrap in the stack. These are **the right choices**:
 
 - **SPRT:** Ideal for online testing — determines as early as possible whether a strategy is profitable or not, without needing a fixed sample size
 - **Bootstrap:** Non-parametric confidence intervals for Sharpe ratio, win rate, etc.
@@ -788,7 +788,7 @@ RUN pip install uv && uv sync --frozen --no-dev
 
 FROM deps AS runtime
 COPY . .
-CMD ["python", "-m", "vmpm.main"]
+CMD ["python", "-m", "noema.main"]
 ```
 
 **Wine + MT5 in Docker:**
@@ -810,7 +810,7 @@ CMD ["python", "-m", "vmpm.main"]
 ```yaml
 # docker-compose.yml
 services:
-  vmpm:
+  noema:
     build: .
     restart: always
     environment:
@@ -856,7 +856,7 @@ services:
 
 ```yaml
 # .github/workflows/ci.yml
-name: VMPM CI
+name: Noema CI
 on: [push, pull_request]
 
 jobs:
@@ -883,7 +883,7 @@ jobs:
 
 ### 7.5 Feature Flags
 
-VMPM already has `ConfluenceConfig.llm_review_enabled: bool = False`. Extend this pattern:
+Noema already has `ConfluenceConfig.llm_review_enabled: bool = False`. Extend this pattern:
 
 ```python
 class FeatureFlags(BaseModel):
@@ -906,7 +906,7 @@ class FeatureFlags(BaseModel):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        VMPM Trading System                          │
+│                        Noema Trading System                          │
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Orchestrator (main.py)                      │  │
@@ -1022,7 +1022,7 @@ class FeatureFlags(BaseModel):
 
 | Item | Monthly Cost | Notes |
 |------|-------------|-------|
-| **NVIDIA NIM API** | $0-5 | Free tier (1000 calls/day) covers VMPM's volume |
+| **NVIDIA NIM API** | $0-5 | Free tier (1000 calls/day) covers Noema's volume |
 | **Hetzner VPS** (if needed) | $10-30 | For Windows VPS if Wine becomes unstable |
 | **Langfuse** (self-hosted) | $0 | Runs on same server |
 | **Grafana + Prometheus** | $0 | Runs on same server |
@@ -1054,7 +1054,7 @@ Is >50% of your agent logic LLM-driven?
     ├── Yes → Use LangGraph or hand-rolled state machine
     └── No → Keep hand-rolled orchestration
         └── Do you need type-safe LLM calls?
-            ├── Yes → Use PydanticAI (VMPM's path)
+            ├── Yes → Use PydanticAI (Noema's path)
             └── No → Use raw OpenAI client
 ```
 
@@ -1076,4 +1076,4 @@ Are your agents in separate processes/machines?
 
 ---
 
-*Report generated 2026-06-17 by VMPM Research Agent*
+*Report generated 2026-06-17 by Noema Research Agent*

@@ -1,4 +1,4 @@
-"""VMPM Main — Modern Agentic Trading System.
+"""Noema Main — Modern Agentic Trading System.
 
 Uses the wave-based parallel orchestrator:
 - Layer 1: Data agents (parallel, deterministic)
@@ -19,45 +19,45 @@ from typing import Any
 
 import structlog
 
-from vmpm.core.settings import Settings, load_settings
-from vmpm.core.nim_client import NIMClient, ModelTier
-from vmpm.core.orchestrator_modern import ModernOrchestrator
-from vmpm.core.metrics import MetricsCollector
-from vmpm.core.storage import TradeStore, RedisCache
+from noema.core.settings import Settings, load_settings
+from noema.core.nim_client import NIMClient, ModelTier
+from noema.core.orchestrator_modern import ModernOrchestrator
+from noema.core.metrics import MetricsCollector
+from noema.core.storage import TradeStore, RedisCache
 
 # ── Agent Imports ────────────────────────────────────────────────────
 # Layer 1: Data agents (deterministic)
-from vmpm.agents.macro import MacroEconomicAgent
-from vmpm.agents.currency import CurrencyStrengthAgent
-from vmpm.agents.session import SessionIntelligenceAgent
+from noema.agents.macro import MacroEconomicAgent
+from noema.agents.currency import CurrencyStrengthAgent
+from noema.agents.session import SessionIntelligenceAgent
 
 # Layer 2: Analysis agents (deterministic)
-from vmpm.agents.structure import MarketStructureAgent
-from vmpm.agents.institutional import InstitutionalFootprintAgent
-from vmpm.agents.sr import SupportResistanceAgent
-from vmpm.agents.momentum import MomentumAgent
-from vmpm.agents.price_action import PriceActionAgent
+from noema.agents.structure import MarketStructureAgent
+from noema.agents.institutional import InstitutionalFootprintAgent
+from noema.agents.sr import SupportResistanceAgent
+from noema.agents.momentum import MomentumAgent
+from noema.agents.price_action import PriceActionAgent
 
 # Layer 3: Decision agents (LLM-powered)
-from vmpm.agents.thesis import TradeThesisAgent
-from vmpm.agents.devil import DevilsAdvocateAgent
-from vmpm.agents.cio import CIOAgent
+from noema.agents.thesis import TradeThesisAgent
+from noema.agents.devil import DevilsAdvocateAgent
+from noema.agents.cio import CIOAgent
 
 # Layer 4: Execution agents (deterministic)
-from vmpm.agents.risk import RiskManagerAgent
-from vmpm.agents.execution import ExecutionAgent
+from noema.agents.risk import RiskManagerAgent
+from noema.agents.execution import ExecutionAgent
 
 # Layer 5: Learning agents (LLM-powered)
-from vmpm.agents.learning import LearningAgent
+from noema.agents.learning import LearningAgent
 
 # Self-learning + journaling + Telegram
-from vmpm.agents.reflector import ReflectorAgent
-from vmpm.database.journal import TradeJournal
-from vmpm.agents.telegram_bot import TelegramBot
+from noema.agents.reflector import ReflectorAgent
+from noema.database.journal import TradeJournal
+from noema.agents.telegram_bot import TelegramBot
 
 # Broker
-from vmpm.broker.paper import PaperBroker
-from vmpm.broker.mt5 import MT5Broker
+from noema.broker.paper import PaperBroker
+from noema.broker.mt5 import MT5Broker
 
 logger = structlog.get_logger(__name__)
 
@@ -151,7 +151,7 @@ def _build_telegram_handlers(services: CompanionServices, broker: Any) -> dict[s
         adapted = services.reflector.get_adapted_params()
         lessons = adapted.get("lessons", [])
         return (
-            "📊 VMPM STATUS\n"
+            "📊 Noema STATUS\n"
             f"  Balance: ${account.get('balance', 0):,.2f}\n"
             f"  Equity: ${account.get('equity', 0):,.2f}\n"
             f"  Open Positions: {len(positions)}\n"
@@ -186,11 +186,11 @@ def _build_telegram_handlers(services: CompanionServices, broker: Any) -> dict[s
         return f"Flattened {count} positions."
 
     async def handle_halt() -> str:
-        await services.telegram.send_alert("⏸️ VMPM TRADING HALTED")
+        await services.telegram.send_alert("⏸️ Noema TRADING HALTED")
         return "Trading halted."
 
     async def handle_resume() -> str:
-        await services.telegram.send_alert("▶️ VMPM TRADING RESUMED")
+        await services.telegram.send_alert("▶️ Noema TRADING RESUMED")
         return "Trading resumed."
 
     async def handle_balance() -> str:
@@ -338,10 +338,10 @@ async def create_orchestrator(
 
 
 async def main() -> None:
-    """VMPM entry point."""
+    """Noema entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Valentine Money Printing Machine")
+    parser = argparse.ArgumentParser(description="Noema")
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--interval", type=float, default=60.0, help="Cycle interval in seconds")
     parser.add_argument("--dry-run", action="store_true", help="Use paper broker")
@@ -358,7 +358,7 @@ async def main() -> None:
         ),
     )
 
-    logger.info("vmpm_starting", version="2.0.0", pairs=settings.trading.pairs)
+    logger.info("noema_starting", version="2.0.0", pairs=settings.trading.pairs)
 
     # Create orchestrator + services
     orch, services = await create_orchestrator(settings)
@@ -383,10 +383,10 @@ async def main() -> None:
     await shutdown_event.wait()
 
     # Graceful shutdown
-    logger.info("vmpm_shutting_down")
+    logger.info("noema_shutting_down")
     await orch.stop()
     await services.stop()
-    logger.info("vmpm_stopped")
+    logger.info("noema_stopped")
 
 
 if __name__ == "__main__":

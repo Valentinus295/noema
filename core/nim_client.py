@@ -1,6 +1,6 @@
 """NVIDIA NIM LLM Client with caching, retry, and rate limiting.
 
-Provides a production-grade interface to NVIDIA NIM API for all VMPM agents.
+Provides a production-grade interface to NVIDIA NIM API for all Noema agents.
 Features:
 - OpenAI-compatible API (works with NIM endpoint)
 - Exponential backoff retry on failures
@@ -174,7 +174,7 @@ class RateLimiter:
 
 
 class NIMClient:
-    """Production-grade NVIDIA NIM client for VMPM.
+    """Production-grade NVIDIA NIM client for Noema.
 
     Usage:
         client = NIMClient(api_key="nvapi-...")

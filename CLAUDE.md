@@ -1,9 +1,9 @@
-# VMPM — Valentine Money Printing Machine
+# Noema
 
 ## Project Identity
-- **Full Name:** Valentine Money Printing Machine (VMPM)
+- **Full Name:** Noema
 - **Version:** 1.0.0 (initial release)
-- **Repository:** https://github.com/ovalentine964/valentine-money-printing-machine (private)
+- **Repository:** https://github.com/ovalentine964/noema (private)
 - **Owner:** Valentine (ovalentine964)
 - **Language:** Python 3.11+
 - **Build System:** Hatchling (pyproject.toml)
@@ -93,13 +93,13 @@ A **multi-agent forex trading system** that replicates the reasoning process of 
 | Agent (base) | core/agent.py | Base class for all agents, AgentReport dataclass |
 | MessageBus | core/message_bus.py | Async pub/sub inter-agent communication |
 | TradingPipeline | core/state_machine.py | 12-phase state machine with strict transitions |
-| VMPMConfig | core/config.py | YAML config with env var overrides |
+| NoemaConfig | core/config.py | YAML config with env var overrides |
 | BrokerBase | broker/base.py | Abstract broker interface |
 | MT5Broker | broker/mt5.py | MetaTrader 5 integration (FX Pesa, FBS) |
 | PaperBroker | broker/paper.py | Simulated trading for testing |
 | MarketDataFeed | data/feed.py | OHLCV data from MT5 or synthetic |
 | EconomicCalendar | data/calendar.py | Economic event data |
-| VMPMOrchestrator | main.py | Main entry point, coordinates all agents |
+| NoemaOrchestrator | main.py | Main entry point, coordinates all agents |
 
 ## Key Config (config/settings.yaml)
 - Broker type: paper (default) or mt5
@@ -112,10 +112,10 @@ A **multi-agent forex trading system** that replicates the reasoning process of 
 
 ## How to Run
 ```bash
-cd /home/valentinetech/vmpm
-python -m vmpm.main --mode paper --pair EURUSD    # Paper trading
-python -m vmpm.main --mode analyze --pair EURUSD  # Single analysis
-python -m vmpm.main --mode run                     # Continuous (needs MT5)
+cd /home/valentinetech/noema
+python -m noema.main --mode paper --pair EURUSD    # Paper trading
+python -m noema.main --mode analyze --pair EURUSD  # Single analysis
+python -m noema.main --mode run                     # Continuous (needs MT5)
 ```
 
 ## Current Status (as of June 2026)

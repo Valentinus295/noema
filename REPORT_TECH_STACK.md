@@ -1,4 +1,4 @@
-# VMPM Tech Stack Enterprise Readiness Assessment
+# Noema Tech Stack Enterprise Readiness Assessment
 
 **Date:** 2026-06-17  
 **Verdict:** 🔴 **NOT enterprise-ready. The current stack is a prototype, not a trading system.**  
