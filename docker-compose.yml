@@ -1,0 +1,199 @@
+# Noema Docker Compose — Production Infrastructure
+#
+# Services:
+#   - PostgreSQL 16  → Trade journal + persistent state
+#   - Redis 7        → Message bus + caching + pub/sub
+#   - Prometheus     → Metrics collection
+#   - Grafana        → Dashboards & monitoring
+#
+# DuckDB runs in-process (no server), but data is persisted to a volume.
+#
+# Usage:
+#   cp config/docker.env.example .env
+#   # Edit .env with your credentials
+#   docker compose up -d
+#   docker compose ps
+#   docker compose logs -f
+
+version: "3.9"
+
+services:
+  # ── PostgreSQL 16 — Trade Journal ──────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: noema-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-noema}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-noema_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-noema}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-noema} -d ${POSTGRES_DB:-noema}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - noema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ── Redis 7 — Message Bus / Caching ────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: noema-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD:-noema_redis_dev}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-noema_redis_dev}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - noema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "3"
+
+  # ── Prometheus — Metrics Scraping ──────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: noema-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - noema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "3"
+
+  # ── Grafana — Monitoring Dashboards ────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: noema-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: ""
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/etc/grafana/dashboards/noema-overview.json"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana-dashboards:/etc/grafana/dashboards:ro
+      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - noema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "3"
+
+  # ── Noema App (optional — for development) ─────────────────
+  # Uncomment to run the Noema Python app in Docker.
+  # noema-app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: noema-app
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - noema-net
+  #   volumes:
+  #     - duckdb_data:/app/data
+
+# ── Volumes ───────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: noema_postgres_data
+    driver: local
+
+  redis_data:
+    name: noema_redis_data
+    driver: local
+
+  prometheus_data:
+    name: noema_prometheus_data
+    driver: local
+
+  grafana_data:
+    name: noema_grafana_data
+    driver: local
+
+  # DuckDB runs in-process, but data is persisted here for dev convenience.
+  duckdb_data:
+    name: noema_duckdb_data
+    driver: local
+
+# ── Network ───────────────────────────────────────────────────
+networks:
+  noema-net:
+    name: noema_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

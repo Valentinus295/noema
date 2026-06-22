@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #1e2a36 transparent;
+  }
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: #1e2a36; border-radius: 3px; }
+  *::-webkit-scrollbar-thumb:hover { background: #4a5568; }
+}
+
+@layer components {
+  .card {
+    @apply bg-terminal-surface border border-terminal-border rounded-lg p-4;
+  }
+  .card-header {
+    @apply text-xs font-semibold uppercase tracking-wider text-terminal-muted mb-3;
+  }
+  .stat-value {
+    @apply font-mono text-2xl font-semibold;
+  }
+  .stat-label {
+    @apply text-xs text-terminal-muted mt-1;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-2xs font-mono font-medium;
+  }
+  .badge-green { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/25; }
+  .badge-yellow { @apply bg-amber-500/15 text-amber-400 border border-amber-500/25; }
+  .badge-red { @apply bg-red-500/15 text-red-400 border border-red-500/25; }
+  .badge-neutral { @apply bg-slate-500/15 text-slate-400 border border-slate-500/25; }
+  .btn-primary {
+    @apply px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors;
+  }
+  .btn-secondary {
+    @apply px-3 py-1.5 bg-terminal-border hover:bg-terminal-muted text-terminal-text rounded text-sm font-medium transition-colors;
+  }
+  .input-field {
+    @apply bg-terminal-bg border border-terminal-border rounded px-3 py-1.5 text-sm text-terminal-text
+           focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors;
+  }
+  .toggle-switch {
+    @apply relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer;
+  }
+  .toggle-switch-on { @apply bg-emerald-500; }
+  .toggle-switch-off { @apply bg-terminal-border; }
+  .toggle-knob {
+    @apply inline-block h-4 w-4 transform rounded-full bg-white transition-transform;
+  }
+  .toggle-knob-on { @apply translate-x-[1.15rem]; }
+  .toggle-knob-off { @apply translate-x-[0.15rem]; }
+}
+
+/* Recharts overrides for dark theme */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: #1e2a36;
+}
+.recharts-text {
+  fill: #4a5568;
+  font-size: 11px;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: #14191f !important;
+  border: 1px solid #1e2a36 !important;
+  border-radius: 6px !important;
+}

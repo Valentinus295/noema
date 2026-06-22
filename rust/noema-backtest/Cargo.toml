@@ -1,0 +1,33 @@
+[package]
+name = "noema-backtest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Backtesting engine core — event loop, order matching, P&L calculation"
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "noema_backtest"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3.workspace = true
+numpy.workspace = true
+arrow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+ndarray.workspace = true
+rayon.workspace = true
+parking_lot.workspace = true
+anyhow.workspace = true
+# Local crates
+noema-data = { path = "../noema-data" }
+
+[features]
+default = ["python-bindings"]
+python-bindings = ["pyo3/extension-module"]
+pure-rust = []

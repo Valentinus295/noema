@@ -7,46 +7,73 @@ requires-python = ">=3.11,<3.14"
 readme = "README.md"
 
 dependencies = [
-    # MT5 bridge (Linux via Wine). RPyC pinned >=6.0 per security review (RCE history in <5.3).
+    # ── MT5 Bridge ────────────────────────────────────────────
+    # Linux via Wine. RPyC pinned >=6.0 per security review (RCE history in <5.3).
     # mt5linux pins rpyc==5.2.3 — accept it for v0.x; upgrade when mt5linux releases
     "mt5linux>=1.0.3",
-    # Technical analysis (system libta-lib must be installed; optional at runtime)
+
+    # ── Technical Analysis ────────────────────────────────────
+    # System libta-lib must be installed; optional at runtime
     "TA-Lib>=0.6.0",
-    # Data / storage
+
+    # ── Data / Storage ────────────────────────────────────────
     "pandas>=2.0",
+    "polars>=1.0",                # Fast DataFrame engine (replaces heavy pandas ops)
+    "pyarrow>=17.0",              # Arrow columnar format (Rust bridge compat)
     "sqlalchemy[asyncio]>=2.0",
-    "asyncpg>=0.30",          # PostgreSQL async driver
-    "aiosqlite>=0.20",       # SQLite fallback for dev/testing
-    "redis>=5.0",            # Redis for caching + pub/sub
-    # DuckDB for trade journal
-    "duckdb>=1.0",
-    # Observability
+    "asyncpg>=0.30",              # PostgreSQL async driver
+    "aiosqlite>=0.20",            # SQLite fallback for dev/testing
+    "redis>=5.0",                 # Redis caching + pub/sub
+    "duckdb>=1.0",                # Embedded OLAP for trade journal
+
+    # ── LLM / AI ──────────────────────────────────────────────
+    "pydantic-ai>=0.0.20",        # LLM structured output + agent framework
+    "instructor>=1.7",            # Guaranteed Pydantic-valid structured LLM outputs
+    "openai>=1.50",               # OpenAI client (used by instructor for NIM/Anthropic patching)
+    "httpx>=0.27",                # Async HTTP client for NIM API
+    "mcp>=1.0",                   # Model Context Protocol — tool server for external consumers
+
+    # ── Observability ─────────────────────────────────────────
     "structlog>=24.0",
-    "prometheus-client>=0.21",  # Prometheus metrics
-    # Config + validation
+    "prometheus-client>=0.21",    # Prometheus metrics
+    "opentelemetry-api>=1.28",    # OpenTelemetry tracing API
+    "opentelemetry-sdk>=1.28",    # OpenTelemetry SDK
+    "opentelemetry-exporter-otlp>=1.28",  # OTLP exporter
+    "opentelemetry-instrumentation-redis>=0.49b0",  # Redis auto-instrumentation
+    "opentelemetry-instrumentation-asyncpg>=0.49b0",  # PostgreSQL auto-instrumentation
+    "langfuse>=2.50",             # LLM observability (traces, prompts, tokens, cost)
+
+    # ── Config / Validation ───────────────────────────────────
     "pydantic>=2.6",
-    # LLM client
-    "httpx>=0.27",           # Async HTTP client for NIM API
-    # Econometrics / stats
+    "pydantic-settings>=2.5",     # Environment variable loading
+    "pyyaml>=6.0",
+
+    # ── Econometrics / Stats ──────────────────────────────────
     "numpy>=2.0",
     "scipy>=1.14",
     "statsmodels>=0.14",
     "arch>=7.0",
     "scikit-learn>=1.5",
-    # Config
-    "pyyaml>=6.0",
+    "filterpy>=1.4",              # Kalman filtering (SURGE-WSI pattern)
+    "hmmlearn>=0.3",              # Hidden Markov Models — regime detection
+
+    # ── Misc ──────────────────────────────────────────────────
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
     "hypothesis>=6.0",
     "ruff>=0.6",
     "mypy>=1.10",
     # Security tooling — required by docs/SECURITY.md
     "detect-secrets>=1.5",
     "pip-audit>=2.7",
+    # Rust build tooling
+    "maturin>=1.7",
 ]
 # v2-only heavy deps. Quality + security delta reviews rejected these as v0.x
 # core deps (LangGraph orchestration overhead, NautilusTrader LGPL pull).
@@ -61,8 +88,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# Code lives at repo root, not in a noema/ package dir
-# packages = ["noema"]
+packages = ["noema"]
 
 [tool.ruff]
 line-length = 100
@@ -70,4 +96,20 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["noema/tests"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--cov=noema",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=60",
+    "-p", "no:warnings",
+]
+markers = [
+    "unit: Fast unit tests (no external dependencies)",
+    "integration: Tests requiring Redis, Postgres, or MT5",
+    "slow: Tests that take >1 second",
+    "live: Tests requiring live market data or NIM API",
+]

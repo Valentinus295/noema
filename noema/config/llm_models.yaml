@@ -1,0 +1,83 @@
+# Model tier configuration for Noema LLM agents.
+# Each tier assigns a primary + fallback model, temperature, and latency budget.
+#
+# Tiers map to agent roles:
+#   decision  → CIO, Trade Thesis, Devil's Advocate (critical reasoning)
+#   analysis  → Macro, Fundamental (context interpretation)
+#   fast      → Momentum, Price Action, Session, S/R, Trend (deterministic-leaning)
+#   local     → Future: self-hosted models (Llama 4, Qwen 3)
+#
+# Primary LLM: MiniMax M3 via NVIDIA NIM endpoint
+# Provider:    NVIDIA NIM (https://integrate.api.nvidia.com/v1)
+
+tiers:
+  decision:
+    description: "CIO, Trade Thesis, Devil's Advocate — critical decision-making"
+    primary: "minimax/minimax-m3"
+    fallback: "claude-4-opus"
+    temperature: 0.1
+    max_tokens: 2048
+    latency_budget_s: 12.0
+    rpm_limit: 20
+
+  analysis:
+    description: "Macro, Fundamental — context interpretation and data synthesis"
+    primary: "minimax/minimax-m3"
+    fallback: "claude-4-sonnet"
+    temperature: 0.2
+    max_tokens: 1536
+    latency_budget_s: 8.0
+    rpm_limit: 40
+
+  fast:
+    description: "Momentum, Price Action, Session, S/R, Trend — technical analysis"
+    primary: "minimax/minimax-m3"
+    fallback: "gpt-5-mini"
+    temperature: 0.0  # deterministic for technical analysis
+    max_tokens: 1024
+    latency_budget_s: 3.0
+    rpm_limit: 100
+
+  local:
+    description: "Future: self-hosted Llama 4 / Qwen 3 models"
+    primary: null
+    fallback: "minimax/minimax-m3"
+    temperature: 0.1
+    max_tokens: 1024
+    latency_budget_s: 5.0
+    rpm_limit: 60
+
+# Provider configuration — maps provider names to base URLs and API key env vars
+providers:
+  nvidia_nim:
+    base_url: "https://integrate.api.nvidia.com/v1"
+    api_key_env: "NVIDIA_NIM_API_KEY"
+    type: "openai_compatible"
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    type: "openai"
+  anthropic:
+    base_url: "https://api.anthropic.com/v1"
+    api_key_env: "ANTHROPIC_API_KEY"
+    type: "anthropic"
+
+# Instructor configuration
+instructor:
+  mode: "md_json"           # md_json | json | function_calling | tool_calls
+  max_retries: 3            # retry on validation failure
+  validation_context: true  # pass Pydantic Field descriptions as validation context
+
+# Cost tracking — approximate USD per 1M tokens (updates as pricing changes)
+cost_per_1m_tokens:
+  minimax/minimax-m3: { input: 0.50,  output: 1.50  }  # MiniMax M3 via NVIDIA NIM — primary
+  claude-4-opus:      { input: 15.00, output: 75.00 }
+  claude-4-sonnet:    { input: 3.00,  output: 15.00 }
+  claude-4-haiku:     { input: 0.25,  output: 1.25  }
+  gpt-5-mini:         { input: 0.15,  output: 0.60  }
+  gpt-5:              { input: 1.25,  output: 10.00 }
+  nemotron-3-nano:    { input: 0.00,  output: 0.00  }  # placeholder — NIM pricing TBD
+  nemotron-3-super:   { input: 0.00,  output: 0.00  }
+  nemotron-3-ultra:   { input: 0.00,  output: 0.00  }
+  llama-4-maverick:   { input: 0.00,  output: 0.00  }  # placeholder — self-hosted
+  qwen-3:             { input: 0.00,  output: 0.00  }  # placeholder — self-hosted
