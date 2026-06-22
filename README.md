@@ -27,13 +27,19 @@ for which academic concept lives in which file.
 ## Quick start (any platform)
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/Valentinus295/noema/main/noema-setup | bash
+```
+
+One command. Clones the repo, installs everything, prompts for your keys.
+
+Or locally:
+
+```bash
 cd noema
-./noema-setup                        # One command — does everything
+./noema-setup
 source .venv/bin/activate
 python -m noema.main --mode paper --pair EURUSD
 ```
-
-Noema auto-detects your OS and configures everything:
 
 ## Broker
 

@@ -2,22 +2,48 @@
 # ═══════════════════════════════════════════════════════════════
 # Noema — One-Command Setup
 # ═══════════════════════════════════════════════════════════════
-# Usage: ./noema-setup
+#
+# Local:      ./noema-setup
+# Remote:     curl -fsSL https://raw.githubusercontent.com/Valentinus295/noema/main/noema-setup | bash
 #
 # This ONE command does everything:
-#   • Python virtual environment + all dependencies
-#   • Rust toolchain + crate compilation
-#   • Node.js + dashboard dependencies
-#   • Environment credentials (interactive prompts)
-#   • Docker services (optional)
+#   • Clones the repo (if run remotely)
+#   • Detects your OS (Linux/Windows/macOS)
+#   • Installs all dependencies (Python, Rust, Node, Wine)
+#   • Interactive credential prompts (stored in .env, chmod 600)
+#   • Docker services (PostgreSQL + Redis)
+#   • Builds Rust crates + dashboard
 #
 # After running, you'll have a fully operational Noema installation.
 # ═══════════════════════════════════════════════════════════════
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+# ── Bootstrap: detect if piped from curl ──────────────────────
+if [[ ! -f "noema-setup" ]] && [[ -t 0 ]]; then
+    # Running from a local clone — use current directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$SCRIPT_DIR"
+elif [[ ! -f "noema-setup" ]]; then
+    # Piped from curl — clone the repo
+    echo ""
+    echo "  🧠  Noema — cloning repository..."
+    echo ""
+    NOEMA_DIR="$HOME/noema"
+    if [ -d "$NOEMA_DIR" ]; then
+        echo "  → Noema already exists at $NOEMA_DIR"
+        cd "$NOEMA_DIR"
+        git pull --ff-only 2>/dev/null || true
+    else
+        git clone https://github.com/Valentinus295/noema.git "$NOEMA_DIR"
+        cd "$NOEMA_DIR"
+    fi
+    SCRIPT_DIR="$NOEMA_DIR"
+else
+    # Running locally
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$SCRIPT_DIR"
+fi
 
 # ── Colors ───────────────────────────────────────────────────
 RED='\033[0;31m'
