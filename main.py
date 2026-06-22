@@ -237,12 +237,8 @@ class VMPMOrchestrator:
             ],
         }
 
-        # Inject ReflectorAgent learned parameters
+        # Inject ReflectorAgent learned parameters — these influence agent decisions
         context = self.inject_learned_params(context)
-
-        # Apply learned risk adjustments
-        risk_multiplier = context.get("risk_multiplier", 1.0)
-        min_confidence = context.get("min_confidence", 0.5)
 
         # Phase 1-6: Analysis Pipeline
         agent_reports: dict[str, dict] = {}
@@ -314,6 +310,20 @@ class VMPMOrchestrator:
         agent_reports["cio"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
 
         decision = report.data.get("decision", "WAIT")
+
+        # Apply ReflectorAgent min_confidence gate
+        min_conf = context.get("min_confidence", 0.5)
+        thesis_conf = agent_reports.get("trade-thesis", {}).get("confidence", 0)
+        if decision in ("BUY", "SELL") and thesis_conf < min_conf:
+            logger.info(f"  ReflectorAgent gate: confidence {thesis_conf:.0%} < min {min_conf:.0%} — REJECT")
+            decision = "WAIT"
+
+        # Check avoided patterns from ReflectorAgent
+        avoided = context.get("avoided_patterns", [])
+        if "all" in avoided and decision in ("BUY", "SELL"):
+            logger.info("  ReflectorAgent: regime "all" avoided — REJECT")
+            decision = "WAIT"
+
         logger.info(f"  CIO Decision: {decision}")
 
         # Phase 9-10: If approved, run risk management
@@ -338,7 +348,12 @@ class VMPMOrchestrator:
             agent_reports["risk-manager"] = {"signal": report.signal, "data": report.data, "confidence": report.confidence}
 
             if report.data.get("approved"):
-                context["lot_size"] = report.data.get("lot_size", 0.01)
+                lot_size = report.data.get("lot_size", 0.01)
+                # Apply ReflectorAgent risk multiplier (capped at 1.0 for safety)
+                risk_mult = min(context.get("risk_multiplier", 1.0), 1.0)
+                lot_size *= risk_mult
+                lot_size = round(max(0.01, lot_size), 2)
+                context["lot_size"] = lot_size
 
                 # Phase 10: Execution
                 context["broker"] = self.broker
