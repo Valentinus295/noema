@@ -9,7 +9,7 @@
 ### Chairman
 **Valentine Owuor**
 - Founder & CEO, Noema
-- BSc Economics & Statistics (final year), Maasai Mara University
+- BSc Economics & Statistics (final year), Masinde Muliro University of Science & Technology (MMUST)
 - 44 units across economics, statistics, econometrics, multivariate analysis
 - Vision: institutional-grade multi-agent trading accessible to anyone
 

@@ -216,7 +216,7 @@ All architecture changes flow through a **5-stage governance gate** before reach
 
 ## Academic Foundation
 
-Noema is built on Valentine Owuor's **44-unit BSc Economics & Statistics curriculum** at Maasai Mara University. Every academic concept is mapped to a specific Noema module.
+Noema is built on Valentine Owuor's **44-unit BSc Economics & Statistics curriculum** at Masinde Muliro University of Science & Technology (MMUST). Every academic concept is mapped to a specific Noema module.
 
 | Academic Domain | Noema Module | Techniques |
 |----------------|-------------|------------|
