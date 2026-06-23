@@ -734,14 +734,24 @@ echo ""
 DASHBOARD_PORT=3000
 API_PORT=8000
 
-# Find Chrome/Chromium
+# Find any available browser
 CHROME=""
-for browser in google-chrome chromium-browser chromium google-chrome-stable; do
+for browser in google-chrome google-chrome-stable chromium-browser chromium brave-browser firefox; do
     if command -v "$browser" &> /dev/null; then
         CHROME="$browser"
         break
     fi
 done
+
+# Also check for Chrome in common snap/flatpak paths
+if [ -z "$CHROME" ]; then
+    for path in /snap/bin/chromium /snap/bin/google-chrome /var/lib/flatpak/exports/bin/org.chromium.Chromium; do
+        if [ -x "$path" ]; then
+            CHROME="$path"
+            break
+        fi
+    done
+fi
 
 # Start backend server
 if [ -f dashboard/server/api.py ]; then
@@ -759,21 +769,28 @@ fi
 if [ -f dashboard/package.json ]; then
     info "Starting dashboard frontend on port $DASHBOARD_PORT..."
     cd dashboard
-    npm run dev -- --port $DASHBOARD_PORT --host &
+    npx vite --port $DASHBOARD_PORT --host &
     FRONTEND_PID=$!
     cd "$SCRIPT_DIR"
-    sleep 3
-    success "Dashboard frontend building (PID $FRONTEND_PID)"
+    # Wait for Vite to be ready
+    info "Waiting for dashboard to be ready..."
+    for i in $(seq 1 15); do
+        if curl -s "http://localhost:$DASHBOARD_PORT" > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    success "Dashboard frontend ready (PID $FRONTEND_PID)"
 fi
 
-# Open in Chrome
+# Open in browser
 echo ""
 if [ -n "$CHROME" ]; then
     info "Opening dashboard in $CHROME..."
-    $CHROME "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
+    DISPLAY=:0 "$CHROME" "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
     success "Dashboard → http://localhost:$DASHBOARD_PORT"
 elif command -v xdg-open &> /dev/null; then
-    xdg-open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
+    DISPLAY=:0 xdg-open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
     success "Dashboard → http://localhost:$DASHBOARD_PORT"
 elif command -v open &> /dev/null; then
     open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
