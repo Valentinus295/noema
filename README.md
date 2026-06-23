@@ -154,33 +154,26 @@ This single command:
 
 ## Quick Start
 
-After setup completes:
+After setup completes, one command runs everything:
 
 ```bash
-cd ~/noema
-source .venv/bin/activate
-
-# Demo mode — full pipeline, no real money
-python -m noema.main --mode demo --mt5-auto
-
-# Paper trading on a specific pair
-python -m noema.main --mode paper --pair EURUSD
-
-# Analysis-only — read market, compute stats, no execution
-python -m noema.main --mode analyze
+noema start
 ```
 
-**Daily workflow (headless Linux):**
+MT5 starts headless → dashboard opens in browser → trading begins. That's it.
 
 ```bash
-# Start MT5 in background
-python -m noema.scripts.mt5_daemon start
+noema status   # Live positions, P&L, Guardian health, uptime
+noema logs     # Tail real-time logs
+noema stop     # Graceful shutdown (trading → dashboard → MT5)
+```
 
-# Run Noema (auto-connects to MT5)
-python -m noema.main --mt5-auto
+**Manual control:**
 
-# Watch dashboard → http://localhost:3000
-cd dashboard && npm run dev
+```bash
+noema dashboard       # Start dashboard only (if already running)
+python -m noema.main --mode demo --mt5-auto   # Trading without CLI
+python -m noema.main --mode analyze           # Read-only analysis
 ```
 
 ---
