@@ -285,8 +285,8 @@ prompt_secret \
 prompt_choice \
     "Primary LLM Model" \
     "Noema_LLM_MODEL" \
-    "minimax/minimax-m3" \
-    "minimax/minimax-m3, claude-4-opus, gpt-5" \
+    "minimaxai/minimax-m3" \
+    "minimaxai/minimax-m3, claude-4-opus, gpt-5" \
     "→ Model ID as recognized by NVIDIA NIM endpoint"
 
 echo ""
