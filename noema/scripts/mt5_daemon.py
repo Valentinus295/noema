@@ -200,7 +200,10 @@ def start_mt5(
     if config_path:
         config = Path(config_path)
         if config.exists():
-            cmd.extend(["/config", str(config)])
+            # MT5 requires /config:path format (colon, not space).
+            # Under Wine, convert Unix path to Wine Z:\ path.
+            win_path = _unix_to_wine_path(str(config))
+            cmd.append(f"/config:{win_path}")
         else:
             logger.warning("config_not_found", path=str(config))
 
@@ -382,6 +385,24 @@ def _command_exists(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def _unix_to_wine_path(unix_path: str) -> str:
+    """Convert a Unix path to a Wine-compatible Windows path.
+
+    Wine maps the Unix filesystem root (/) to the Z: drive.
+    Example: /home/user/.noema/mt5-config.ini → Z:\\home\\user\\.noema\\mt5-config.ini
+    """
+    try:
+        result = subprocess.run(
+            ["winepath", "-w", unix_path],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "Z:" + unix_path.replace("/", "\\")
+
+
 def _check_port(host: str, port: int, timeout: float = 1.0) -> bool:
     """Check if a TCP port is accepting connections."""
     try:
@@ -457,11 +478,33 @@ Examples:
     # generate-config
     sub.add_parser("generate-config", help="Generate config.ini from .env credentials")
 
+    # setup-mt5-ea
+    sub.add_parser("setup-mt5-ea", help="Copy mt5linux EA to MT5 Experts directory")
+
     return parser
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
     """Start MT5 daemon."""
+    # ── Pre-flight: ensure mt5linux EA is installed ─────────────
+    from noema.scripts.start_mt5 import setup_mt5linux_ea, _find_mt5linux_ea
+    ea_path = _find_mt5linux_ea()
+    if ea_path and not ea_path.exists():
+        logger.warning(
+            "mt5linux_ea_missing",
+            path=str(ea_path),
+            hint="The mt5linux Expert Advisor is required for the RPyC bridge.",
+        )
+        if not setup_mt5linux_ea():
+            print(f"\n  ⚠️  mt5linux EA not found in MT5 Experts directory")
+            print(f"     Expected: {ea_path}")
+            print(f"     Without this EA, port {DEFAULT_RPYC_PORT} will NOT open.")
+            print(f"     → Install manually: pip install mt5linux")
+            print(f"     → Then copy mt5linux.ex5 to {ea_path.parent}")
+            print(f"     → Or run: python -m noema.scripts.mt5_daemon setup-mt5-ea\n")
+    else:
+        logger.info("mt5linux_ea_found", path=str(ea_path) if ea_path else "unknown")
+
     # Generate config from .env if not provided
     config_path = args.config
     if not config_path:
@@ -497,7 +540,8 @@ def _cmd_start(args: argparse.Namespace) -> int:
     else:
         print(f"  ✗ MT5 did not become ready within {args.wait_timeout}s")
         print(f"  → Check: winecfg, MT5 installation, mt5linux server")
-        print(f"  → Manually: wine '{DEFAULT_MT5_PATH}' /portable /config:'{config_path}'\n")
+        win_path = _unix_to_wine_path(str(config_path))
+        print(f"  → Manually: wine '{DEFAULT_MT5_PATH}' /portable '/config:{win_path}'\n")
         return 1
 
 
@@ -574,6 +618,31 @@ def _cmd_restart(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_setup_mt5_ea(args: argparse.Namespace) -> int:
+    """Copy the mt5linux Expert Advisor into MT5's Experts directory."""
+    from noema.scripts.start_mt5 import setup_mt5linux_ea, _find_mt5linux_ea
+
+    print("")
+    ea_dest = _find_mt5linux_ea()
+    if ea_dest and ea_dest.exists():
+        print(f"  ✅ mt5linux EA already present: {ea_dest}")
+        print(f"     MT5 should expose RPyC on port {DEFAULT_RPYC_PORT} when the EA is attached to a chart.\n")
+        return 0
+
+    print("  → Locating mt5linux EA in Python package...")
+    if setup_mt5linux_ea():
+        print(f"  ✅ EA copied to: {ea_dest}")
+        print(f"     → Start MT5, then attach the 'mt5linux' expert to any chart.")
+        print(f"     → The RPyC bridge will listen on port {DEFAULT_RPYC_PORT}.\n")
+        return 0
+    else:
+        print(f"  ✗ Failed to locate mt5linux.ex5 in the Python package.")
+        print(f"     → Ensure mt5linux is installed: pip install mt5linux")
+        print(f"     → Or download the EA from: https://github.com/lucas-campagna/mt5linux/releases")
+        print(f"     → Copy mt5linux.ex5 to: {ea_dest}\n")
+        return 1
+
+
 def _cmd_generate_config(args: argparse.Namespace) -> int:
     """Generate config.ini from .env credentials."""
     try:
@@ -605,6 +674,7 @@ def main() -> int:
         "wait": _cmd_wait,
         "restart": _cmd_restart,
         "generate-config": _cmd_generate_config,
+        "setup-mt5-ea": _cmd_setup_mt5_ea,
     }
 
     handler = handlers.get(args.command)

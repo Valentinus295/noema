@@ -207,34 +207,85 @@ def _wait_for_url(url: str, timeout: int = 30, label: str = "") -> bool:
 
 
 def _open_browser(url: str) -> None:
-    """Open URL in the default browser."""
-    print(f"🌐 Opening {url}...", end=" ", flush=True)
+    """Open URL in the default browser.
+
+    Tries multiple strategies:
+    1. Python's webbrowser module
+    2. Common browser commands (xdg-open, open, etc.)
+    3. Snap/flatpak browsers
+    4. If all fail, prints the URL prominently
+    """
+    # Strategy 1: Python webbrowser module
     try:
         import webbrowser
-
-        webbrowser.open(url)
-        print("done")
+        if webbrowser.open(url):
+            return
     except Exception:
-        # Fallback: try common browsers
-        for browser in [
-            "xdg-open",
-            "open",
-            "google-chrome",
-            "chromium-browser",
-            "firefox",
-        ]:
-            try:
-                subprocess.run(
-                    [browser, url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
-                print(f"done ({browser})")
-                return
-            except Exception:
+        pass
+
+    # Strategy 2: Try common browser commands
+    browser_commands = [
+        ["xdg-open", url],
+        ["open", url],
+        ["sensible-browser", url],
+        ["google-chrome", url],
+        ["google-chrome-stable", url],
+        ["chromium-browser", url],
+        ["chromium", url],
+        ["firefox", url],
+        ["firefox-esr", url],
+        ["brave-browser", url],
+        ["microsoft-edge", url],
+        ["opera", url],
+        ["vivaldi", url],
+        # Snap paths
+        ["/snap/bin/chromium", url],
+        ["/snap/bin/firefox", url],
+        ["/snap/bin/brave", url],
+        ["/snap/bin/opera", url],
+        # Flatpak
+        ["/var/lib/flatpak/exports/bin/org.mozilla.firefox", url],
+        ["/var/lib/flatpak/exports/bin/com.google.Chrome", url],
+        ["/var/lib/flatpak/exports/bin/com.brave.Browser", url],
+        # AppImage (check common locations)
+        [str(Path.home() / "Applications" / "Firefox.AppImage"), url],
+        [str(Path.home() / "Applications" / "Chrome.AppImage"), url],
+    ]
+
+    for cmd in browser_commands:
+        browser_path = cmd[0]
+        # For simple command names, check if they exist in PATH
+        if "/" not in browser_path:
+            if not _check_binary(browser_path):
                 continue
-        print("failed — open manually")
+        else:
+            if not Path(browser_path).exists():
+                continue
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            return
+        except Exception:
+            continue
+
+    # Strategy 3: python -m webbrowser as last resort
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "webbrowser", "-t", url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return
+    except Exception:
+        pass
+
+    # Strategy 4: Display URL prominently — nothing worked
+    _print_url_box(url)
 
 
 def _check_binary(name: str) -> bool:
@@ -246,6 +297,22 @@ def _check_binary(name: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _print_url_box(url: str) -> None:
+    """Print URL in a prominent box — fallback when no browser available."""
+    url_line = f"  🌐  {url}  "
+    width = max(len(url_line) + 2, 50)
+    border = "═" * width
+    print()
+    print(f"  ╔{border}╗")
+    print(f"  ║{'Open this URL in your browser:':^{width}}║")
+    print(f"  ║{'':^{width}}║")
+    print(f"  ║{url_line:^{width}}║")
+    print(f"  ║{'':^{width}}║")
+    print(f"  ║{'No browser detected — open manually ↑':^{width}}║")
+    print(f"  ╚{border}╝")
+    print()
 
 
 def _find_npm_or_npx() -> Optional[str]:
@@ -417,8 +484,11 @@ def cmd_start(args: argparse.Namespace) -> None:
     else:
         print("   ⚠️ npm not found — skipping dashboard frontend")
 
-    # 7. Open browser
-    _open_browser("http://localhost:3000")
+    # 7. Open browser (only if frontend is actually running)
+    if _is_running(PID_DASHBOARD_FRONTEND):
+        _open_browser("http://localhost:3000")
+    else:
+        _print_url_box("http://localhost:3000")
 
     # 8. Start trading engine
     _print("📈", "Starting trading engine...")
@@ -603,9 +673,33 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
     else:
         print("   ⚠️ npm not found — skipping dashboard frontend")
 
-    _open_browser("http://localhost:3000")
+    # Only open browser if frontend is actually responding
+    frontend_ok = _wait_for_url("http://localhost:3000", timeout=5, label="frontend check")
+    if frontend_ok:
+        _open_browser("http://localhost:3000")
+    else:
+        _print_url_box("http://localhost:3000")
     print(f"✅ Dashboard running at http://localhost:3000")
     print()
+
+
+def cmd_setup_mt5_ea(args: argparse.Namespace) -> None:
+    """Copy the mt5linux Expert Advisor into MT5's Experts directory.
+
+    This EA is required — it runs inside MT5 and exposes the RPyC bridge
+    on port 18812. Without it, Noema cannot communicate with MT5.
+    """
+    print(f"🧠 Noema v{VERSION}")
+    print()
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "noema.scripts.mt5_daemon", "setup-mt5-ea"],
+            cwd=PROJECT_ROOT,
+        )
+        sys.exit(result.returncode)
+    except Exception as exc:
+        print(f"  ✗ Failed: {exc}")
+        sys.exit(1)
 
 
 def cmd_logs(args: argparse.Namespace) -> None:
@@ -662,6 +756,13 @@ def main() -> None:
     # dashboard
     p_dashboard = sub.add_parser("dashboard", help="Start dashboard only")
     p_dashboard.set_defaults(func=cmd_dashboard)
+
+    # setup-mt5-ea
+    p_setup_ea = sub.add_parser(
+        "setup-mt5-ea",
+        help="Install mt5linux Expert Advisor into MT5 (required for broker bridge)",
+    )
+    p_setup_ea.set_defaults(func=cmd_setup_mt5_ea)
 
     # logs
     p_logs = sub.add_parser("logs", help="Tail live logs")

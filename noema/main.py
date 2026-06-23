@@ -200,6 +200,26 @@ async def ensure_mt5_running(settings: Settings) -> bool:
         generate_config,
         load_credentials_from_env,
     )
+    from noema.scripts.start_mt5 import setup_mt5linux_ea, _find_mt5linux_ea
+
+    # ── Pre-flight: mt5linux EA check ───────────────────────────
+    ea_path = _find_mt5linux_ea()
+    if ea_path and not ea_path.exists():
+        logger.warning(
+            "mt5linux_ea_missing_preflight",
+            path=str(ea_path),
+            hint="The Expert Advisor must be in MT5's Experts dir for the RPyC bridge.",
+        )
+        if setup_mt5linux_ea():
+            logger.info("mt5linux_ea_auto_installed")
+        else:
+            logger.error(
+                "mt5linux_ea_install_failed",
+                fix=(
+                    "Run: python -m noema.scripts.mt5_daemon setup-mt5-ea\n"
+                    "Or: noema setup-mt5-ea"
+                ),
+            )
 
     status = is_mt5_running()
 
