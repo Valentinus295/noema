@@ -177,6 +177,15 @@ check_cmd() {
 }
 
 check_cmd python3
+# Check for xvfb (needed for headless MT5 on Linux)
+if [ "$NEED_WINE" = "true" ]; then
+    if command -v xvfb-run &> /dev/null; then
+        success "xvfb-run (headless MT5 support)"
+    else
+        warn "xvfb-run — NOT FOUND"
+        MISSING+=("xvfb-run")
+    fi
+fi
 # Only require Wine on Linux
 if [ "$NEED_WINE" = "true" ]; then
     if command -v wine &> /dev/null; then
@@ -198,10 +207,18 @@ if [ ${#MISSING[@]} -gt 0 ]; then
             python3) echo "  python3 → install from https://python.org or 'apt install python3.11'" ;;
             cargo)   echo "  cargo   → install from https://rustup.rs" ;;
             node)    echo "  node    → install from https://nodejs.org (LTS)" ;;
+            xvfb-run) echo "  xvfb-run → 'sudo apt install xvfb' (headless MT5)" ;;
+            wine)    echo "  wine    → 'sudo apt install wine64 wine32' (MT5 on Linux)" ;;
             *)       echo "  $m — please install manually" ;;
         esac
     done
     echo ""
+    if [[ "${MISSING[*]}" =~ "xvfb-run" ]]; then
+        echo -e "  ${CYAN}→ Auto-installing xvfb now...${NC}"
+        (sudo apt-get update -qq && sudo apt-get install -y -qq xvfb) 2>/dev/null \
+            && success "xvfb auto-installed" \
+            || warn "xvfb auto-install failed — install manually: sudo apt install xvfb"
+    fi
     if [[ "${MISSING[*]}" =~ "python3" ]]; then
         echo -e "${RED}Cannot continue without Python 3.11+. Install it first.${NC}"
         exit 1
@@ -224,6 +241,11 @@ if [ "$NEED_WINE" = "true" ] && ! command -v wine &> /dev/null; then
     echo ""
 elif [ "$NEED_WINE" = "true" ] && [ -f "$WINE_MT5_PATH" ]; then
     success "Wine + MT5 detected"
+    if command -v xvfb-run &> /dev/null; then
+        success "xvfb-run available — headless MT5 supported"
+    else
+        warn "xvfb-run not found — headless MT5 NOT available"
+    fi
 elif [ "$NEED_WINE" = "true" ]; then
     success "Wine detected — install MT5: wine ~/Downloads/fxpesa5setup.exe"
 elif [ "$NEED_WINE" = "false" ] && echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
@@ -234,6 +256,17 @@ fi
 
 # ── Step 2:
 section "Step 2: Python environment"
+
+# Pre-check: mt5linux Python package
+if [ "$NEED_WINE" = "true" ]; then
+    if python3 -c "import mt5linux" 2>/dev/null; then
+        MT5LINUX_INSTALLED=true
+        success "mt5linux Python package — already installed"
+    else
+        MT5LINUX_INSTALLED=false
+        warn "mt5linux not installed — will install during venv setup"
+    fi
+fi
 
 # Detect package manager
 if command -v uv &> /dev/null; then
@@ -253,6 +286,24 @@ else
     pip install -e ".[dev]"
     [ "$NEED_WINE" = "true" ] && pip install mt5linux && success "mt5linux installed (Linux MT5 bridge)"
     success "Python dependencies installed via pip (incl. mt5linux for Linux MT5)"
+fi
+
+# ── Step 2.5: mt5linux EA Auto-Install ──────────────────────────
+if [ "$NEED_WINE" = "true" ]; then
+    section "Step 2.5: mt5linux Expert Advisor setup"
+    info "Installing mt5linux bridge into MT5..."
+    source .venv/bin/activate 2>/dev/null || true
+    python -m noema.scripts.mt5_daemon setup-mt5-ea 2>&1 | tail -3
+    if [ -f "$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Experts/mt5linux.ex5" ]; then
+        success "mt5linux EA installed in MT5 Experts directory"
+        info "This EA exposes the RPyC bridge on port 18812 — Noema needs it to talk to MT5"
+    else
+        warn "mt5linux EA not found — MT5 bridge will NOT work without it"
+        info "Manual fix:"
+        info "  1. pip install mt5linux"
+        info "  2. python -c \"from noema.scripts.start_mt5 import setup_mt5linux_ea; setup_mt5linux_ea()\""
+        info "  3. Or download from: https://github.com/lucas-campagna/mt5linux/releases"
+    fi
 fi
 
 # ── Step 3: Credentials ───────────────────────────────────────
@@ -479,11 +530,14 @@ section "Step 5: Rust workspace"
 if command -v cargo &> /dev/null; then
     info "Building Rust crates (first build ~2-5 min)..."
     cd rust
+    # Suppress harmless dead_code warnings from backtest engine
+    export RUSTFLAGS="-A dead_code -A unused_variables"
     if cargo build --release 2>&1; then
         success "Rust crates compiled (noema-data, noema-backtest, noema-smc)"
     else
         warn "Rust build had issues — Python fallbacks will be used"
     fi
+    unset RUSTFLAGS
     cd ..
 else
     warn "Rust not installed — using Python fallbacks for backtesting/SMC"
@@ -576,13 +630,71 @@ fi
 # ── Step 8: MT5 Connection Test ──────────────────────────────
 section "Step 8: MT5 Connection Test"
 
-if [ -f noema/scripts/start_mt5.py ] && command -v wine &> /dev/null; then
-    info "Testing MT5 connection..."
-    if python3 -m noema.scripts.start_mt5 2>/dev/null; then
-        success "MT5 connection test passed"
+if [ "$NEED_WINE" = "true" ]; then
+    echo -e "  ${BOLD}${CYAN}── MT5 Bridge Diagnostics ──${NC}"
+    echo ""
+
+    PASS_ALL=true
+
+    # 1. Check mt5linux EA file
+    EA_PATH="$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Experts/mt5linux.ex5"
+    if [ -f "$EA_PATH" ]; then
+        success "mt5linux EA: PRESENT at $EA_PATH"
     else
-        warn "MT5 not currently running — start it with: python -m noema.scripts.mt5_daemon start"
+        fail "mt5linux EA: MISSING — RPyC bridge will NOT work"
+        echo -e "    ${YELLOW}  Fix: Run 'noema setup-mt5-ea' or manually copy mt5linux.ex5${NC}"
+        PASS_ALL=false
     fi
+
+    # 2. Check mt5linux Python package
+    source .venv/bin/activate 2>/dev/null || true
+    if python -c "import mt5linux" 2>/dev/null; then
+        success "mt5linux Python package: IMPORT OK"
+    else
+        fail "mt5linux Python package: NOT INSTALLED"
+        echo -e "    ${YELLOW}  Fix: pip install mt5linux${NC}"
+        PASS_ALL=false
+    fi
+
+    # 3. Check if MT5 is running
+    if command -v wine &> /dev/null; then
+        if pgrep -a wineserver &> /dev/null; then
+            MT5_RUNNING=true
+            success "MT5 process: RUNNING"
+        else
+            MT5_RUNNING=false
+            warn "MT5 process: NOT RUNNING — start with: python -m noema.scripts.mt5_daemon start"
+        fi
+    else
+        MT5_RUNNING=false
+        warn "wine not found — can't check MT5 process"
+    fi
+
+    # 4. Test RPyC port if MT5 is running
+    if [ "$MT5_RUNNING" = "true" ]; then
+        if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/18812" 2>/dev/null; then
+            success "RPyC bridge (port 18812): LISTENING — Noema can connect!"
+        else
+            fail "RPyC bridge (port 18812): NOT LISTENING"
+            echo -e "    ${YELLOW}  Fix: Ensure mt5linux EA is attached to a chart in MT5${NC}"
+            echo -e "    ${YELLOW}  Open MT5 → Navigator → Experts → double-click mt5linux → attach to EURUSD${NC}"
+            PASS_ALL=false
+        fi
+    fi
+
+    # 5. Summary
+    echo ""
+    if [ "$PASS_ALL" = "true" ]; then
+        echo -e "  ${GREEN}${BOLD}══ MT5 Connection: ALL CHECKS PASSED ✅ ══${NC}"
+        echo -e "  ${GREEN}Noema can communicate with MT5 via RPyC on port 18812.${NC}"
+    else
+        echo -e "  ${RED}${BOLD}══ MT5 Connection: SOME CHECKS FAILED ❌ ══${NC}"
+        echo -e "  ${YELLOW}See fix instructions above. Run 'noema setup-mt5-ea' to reinstall the bridge.${NC}"
+    fi
+elif [ -f noema/scripts/start_mt5.py ] && echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    info "Windows — native MT5 available, no Wine bridge needed"
+else
+    warn "Not on Linux — skipping MT5 bridge check"
 fi
 
 # ── Step 8.5: MetaTrader 5 Auto-Start ─────────────────────────
@@ -655,6 +767,112 @@ echo ""
 
 echo -e "  ${BOLD}Credentials stored in:${NC} ${CYAN}.env${NC} ${GREEN}(gitignored, chmod 600)${NC}"
 echo ""
+
+# ── End-to-End Verification ────────────────────────────────
+VERIFY_PASS=0
+VERIFY_FAIL=0
+
+echo -e "  ${BOLD}${CYAN}── End-to-End Verification ──${NC}"
+echo ""
+
+# 1. MT5 bridge EA check
+if [ "$NEED_WINE" = "true" ]; then
+    EA_CHECK_PATH="$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Experts/mt5linux.ex5"
+    if [ -f "$EA_CHECK_PATH" ]; then
+        echo -e "  ${GREEN}✓${NC} mt5linux EA installed"
+        VERIFY_PASS=$((VERIFY_PASS + 1))
+    else
+        echo -e "  ${RED}✗${NC} mt5linux EA missing — Run: ${CYAN}noema setup-mt5-ea${NC}"
+        VERIFY_FAIL=$((VERIFY_FAIL + 1))
+    fi
+fi
+
+# 2. Python packages import check
+source .venv/bin/activate 2>/dev/null || true
+if python3 -c "import noema; print('OK')" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} Python package 'noema' imports"
+    VERIFY_PASS=$((VERIFY_PASS + 1))
+else
+    echo -e "  ${RED}✗${NC} Python package 'noema' broken — Run: ${CYAN}pip install -e .${NC}"
+    VERIFY_FAIL=$((VERIFY_FAIL + 1))
+fi
+
+# 3. Dashboard built check
+if [ -f dashboard/package.json ] && [ -d dashboard/node_modules ]; then
+    echo -e "  ${GREEN}✓${NC} Dashboard built (node_modules present)"
+    VERIFY_PASS=$((VERIFY_PASS + 1))
+else
+    echo -e "  ${YELLOW}⚠${NC} Dashboard not built — Run: ${CYAN}cd dashboard && npm install${NC}"
+    VERIFY_FAIL=$((VERIFY_FAIL + 1))
+fi
+
+# 4. Docker available check
+if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    echo -e "  ${GREEN}✓${NC} Docker Compose available"
+    VERIFY_PASS=$((VERIFY_PASS + 1))
+elif command -v docker &> /dev/null; then
+    echo -e "  ${YELLOW}⚠${NC} Docker found but docker-compose plugin missing"
+    VERIFY_FAIL=$((VERIFY_FAIL + 1))
+else
+    echo -e "  ${YELLOW}⚠${NC} Docker not installed — services run without it"
+fi
+
+# 5. .env validity check
+if [ -f .env ]; then
+    ENV_OK=true
+    if ! grep -qE "^NIM_API_KEY=.+" .env 2>/dev/null; then
+        echo -e "  ${RED}✗${NC} NIM_API_KEY not set in .env"
+        ENV_OK=false
+        VERIFY_FAIL=$((VERIFY_FAIL + 1))
+    fi
+    if ! grep -qE "^Noema_MT5_LOGIN=.+" .env 2>/dev/null; then
+        echo -e "  ${YELLOW}⚠${NC} MT5 credentials not set (required for live trading)"
+        ENV_OK=false
+    else
+        echo -e "  ${GREEN}✓${NC} MT5 credentials configured"
+        VERIFY_PASS=$((VERIFY_PASS + 1))
+    fi
+    if grep -qE "^NIM_API_KEY=.+" .env 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} NIM_API_KEY configured"
+        if [ "$ENV_OK" = "true" ]; then
+            VERIFY_PASS=$((VERIFY_PASS + 1))
+        fi
+    fi
+fi
+
+# 6. mt5linux Python package check (for Linux)
+if [ "$NEED_WINE" = "true" ]; then
+    if python3 -c "import mt5linux" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} mt5linux Python package loaded"
+        VERIFY_PASS=$((VERIFY_PASS + 1))
+    else
+        echo -e "  ${RED}✗${NC} mt5linux not in venv — Run: ${CYAN}pip install mt5linux${NC}"
+        VERIFY_FAIL=$((VERIFY_FAIL + 1))
+    fi
+fi
+
+# 7. Rust crates check
+if command -v cargo &> /dev/null && [ -f rust/target/release/libnoema_backtest.rlib ]; then
+    echo -e "  ${GREEN}✓${NC} Rust crates compiled"
+    VERIFY_PASS=$((VERIFY_PASS + 1))
+else
+    echo -e "  ${YELLOW}⚠${NC} Rust not compiled — Python fallbacks used"
+fi
+
+# Summary
+echo ""
+FAIL_COLOR="${RED}"
+if [ "$VERIFY_FAIL" -eq 0 ]; then
+    FAIL_COLOR="${GREEN}"
+fi
+echo -e "  ${BOLD}${GREEN}Passed: ${VERIFY_PASS}${NC}  ${BOLD}${FAIL_COLOR}Failed: ${VERIFY_FAIL}${NC}"
+if [ "$VERIFY_FAIL" -gt 0 ]; then
+    echo -e "  ${RED}${BOLD}⚠️  Some checks failed — review the output above for fix instructions.${NC}"
+else
+    echo -e "  ${GREEN}${BOLD}✅ All checks passed! Noema is ready.${NC}"
+fi
+
+echo ""
 echo -e "  ${YELLOW}⚠️  Start with paper trading. Validate on demo 2+ weeks before live.${NC}"
 echo ""
 
@@ -716,35 +934,47 @@ echo ""
 
 mkdir -p "$NOEMA_BIN_DIR"
 
-# Create noema wrapper script
+# Create noema wrapper script (auto-activates venv — no manual 'source .venv' needed)
 if [ -f "$NOEMA_BIN" ]; then
     rm -f "$NOEMA_BIN"
 fi
 
 cat > "$NOEMA_BIN" << 'NOEMACLI'
 #!/usr/bin/env bash
-# Noema CLI wrapper — generated by noema-setup
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Noema CLI wrapper — auto-activates venv, zero manual steps
+# Generated by noema-setup — DO NOT EDIT (re-run noema-setup to regenerate)
+
 NOEMA_ROOT="$HOME/noema"
-if [ -d "$NOEMA_ROOT" ]; then
-    cd "$NOEMA_ROOT"
-else
+
+# Find the project root — try multiple locations
+for candidate in "$HOME/noema" "$HOME/valentine/noema"; do
+    if [ -d "$candidate" ] && [ -f "$candidate/pyproject.toml" ]; then
+        NOEMA_ROOT="$candidate"
+        break
+    fi
+done
+
+if [ ! -d "$NOEMA_ROOT" ]; then
     echo "❌ Noema project not found at $NOEMA_ROOT"
-    echo "   Run ./noema-setup first"
+    echo "   Run ./noema-setup first from your noema directory"
     exit 1
 fi
 
-# Try pip-installed entry point first
-if command -v noema &>/dev/null && ! echo "$0" | grep -q "$HOME/.local/bin"; then
-    exec python -m noema.cli "$@"
-fi
+cd "$NOEMA_ROOT"
 
-# Activate venv if it exists
+# Auto-activate venv if it exists — user NEVER needs to type 'source .venv/bin/activate'
 if [ -f ".venv/bin/activate" ]; then
     source .venv/bin/activate
 fi
 
-exec python -m noema.cli "$@"
+# Run the CLI
+if python -c "import noema.cli" 2>/dev/null; then
+    exec python -m noema.cli "$@"
+else
+    echo "❌ noema package not found in Python path"
+    echo "   Run: cd $NOEMA_ROOT && pip install -e ."
+    exit 1
+fi
 NOEMACLI
 
 chmod +x "$NOEMA_BIN"
@@ -814,25 +1044,6 @@ echo ""
 DASHBOARD_PORT=3000
 API_PORT=8000
 
-# Find any available browser
-CHROME=""
-for browser in google-chrome google-chrome-stable chromium-browser chromium brave-browser firefox; do
-    if command -v "$browser" &> /dev/null; then
-        CHROME="$browser"
-        break
-    fi
-done
-
-# Also check for Chrome in common snap/flatpak paths
-if [ -z "$CHROME" ]; then
-    for path in /snap/bin/chromium /snap/bin/google-chrome /var/lib/flatpak/exports/bin/org.chromium.Chromium; do
-        if [ -x "$path" ]; then
-            CHROME="$path"
-            break
-        fi
-    done
-fi
-
 # Start backend server
 if [ -f dashboard/server/api.py ]; then
     info "Starting dashboard API server on port $API_PORT..."
@@ -863,20 +1074,58 @@ if [ -f dashboard/package.json ]; then
     success "Dashboard frontend ready (PID $FRONTEND_PID)"
 fi
 
-# Open in browser
+# Open in browser — use Python's webbrowser module (most reliable)
 echo ""
-if [ -n "$CHROME" ]; then
-    info "Opening dashboard in $CHROME..."
-    DISPLAY=:0 "$CHROME" "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
-    success "Dashboard → http://localhost:$DASHBOARD_PORT"
-elif command -v xdg-open &> /dev/null; then
-    DISPLAY=:0 xdg-open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
-    success "Dashboard → http://localhost:$DASHBOARD_PORT"
-elif command -v open &> /dev/null; then
-    open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
-    success "Dashboard → http://localhost:$DASHBOARD_PORT"
+DASH_URL="http://localhost:$DASHBOARD_PORT"
+if curl -s "$DASH_URL" > /dev/null 2>&1; then
+    # Countdown for user awareness
+    echo ""
+    info "Opening dashboard in browser..."
+    for sec in 5 4 3 2 1; do
+        echo -ne "  ${CYAN}⏳ $sec...${NC}  "
+        sleep 1
+    done
+    echo ""
+
+    # Strategy 1: Python webbrowser module (cross-platform, most reliable)
+    OPEN_OK=false
+    source .venv/bin/activate 2>/dev/null || true
+    if python3 -c "import webbrowser; webbrowser.open('$DASH_URL')" 2>/dev/null; then
+        success "Dashboard opened → $DASH_URL"
+        OPEN_OK=true
+    fi
+
+    # Strategy 2: Fallback to common browser commands
+    if [ "$OPEN_OK" != "true" ]; then
+        BROWSER_OPENED=false
+        for browser in xdg-open sensible-browser google-chrome google-chrome-stable chromium-browser chromium brave-browser firefox; do
+            if command -v "$browser" &> /dev/null; then
+                "$browser" "$DASH_URL" 2>/dev/null &
+                BROWSER_OPENED=true
+                break
+            fi
+        done
+        if [ "$BROWSER_OPENED" = "true" ]; then
+            success "Dashboard → $DASH_URL"
+            OPEN_OK=true
+        fi
+    fi
+
+    # Strategy 3: Display URL prominently if nothing worked
+    if [ "$OPEN_OK" != "true" ]; then
+        echo ""
+        echo -e "  ${YELLOW}${BOLD}╔══════════════════════════════════════════════╗${NC}"
+        echo -e "  ${YELLOW}${BOLD}║  🌐  Open this URL in your browser:          ║${NC}"
+        echo -e "  ${YELLOW}${BOLD}║                                              ║${NC}"
+        echo -e "  ${GREEN}${BOLD}║  $DASH_URL                      ║${NC}"
+        echo -e "  ${YELLOW}${BOLD}║                                              ║${NC}"
+        echo -e "  ${YELLOW}${BOLD}║  No browser detected — open manually ↑       ║${NC}"
+        echo -e "  ${YELLOW}${BOLD}╚══════════════════════════════════════════════╝${NC}"
+        echo ""
+    fi
 else
-    warn "Open http://localhost:$DASHBOARD_PORT in your browser"
+    warn "Dashboard not responding at $DASH_URL — check logs"
+    echo -e "  ${CYAN}  Try manually: cd dashboard && npm run dev${NC}"
 fi
 
 # ── Phase 1 Module Summary ─────────────────────────────────
