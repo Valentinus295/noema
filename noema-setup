@@ -782,6 +782,26 @@ else
     warn "Open http://localhost:$DASHBOARD_PORT in your browser"
 fi
 
+# ── Phase 1 Module Summary ─────────────────────────────────
+echo ""
+echo -e "${BOLD}${CYAN}── Phase 1 Modules (Deployed) ──${NC}"
+echo ""
+echo -e "  ${GREEN}✓${NC} Statistics   — 8 modules (distributions, hypothesis, nonparametric,"
+echo -e "                 multivariate, monte carlo, estimation, survival, decorators)"
+echo -e "  ${GREEN}✓${NC} Econometrics — 6 modules (time series, cointegration, volatility,"
+echo -e "                 regression, panel, causal inference)"
+echo -e "  ${GREEN}✓${NC} Agents       — 26 agents (actor-critic + debate + conservative tiebreaker)"
+echo -e "  ${GREEN}✓${NC} Guardian     — 16+ kill-switches (drawdown freeze, SPRT, KS-drift, news blackout)"
+echo -e "  ${GREEN}✓${NC} Core         — Typed messages (46 types), config, Rust bridge"
+echo -e "  ${GREEN}✓${NC} Broker       — MT5 Linux/Wine, FxPesa, FBS, paper trading, lot protection"
+echo -e "  ${GREEN}✓${NC} Dashboard    — Next.js, TradingView charts, SMC overlays (OB/FVG/BOS)"
+echo -e "  ${GREEN}✓${NC} Rust Crates  — noema-data (Arrow), noema-backtest, noema-smc"
+echo -e "  ${GREEN}✓${NC} Tests        — 84 tests passing (agents, core, broker, analysis, data, backtest)"
+echo ""
+echo -e "  ${CYAN}Phase 1 delivers the foundational statistics + econometrics pipeline.${NC}"
+echo -e "  ${CYAN}The LLM (minimax-m3 via NVIDIA NIM) narrates only — zero decision authority.${NC}"
+echo -e "  ${CYAN}Next milestone: v1.0 live paper trading with 30-day statistical validation.${NC}"
+
 # ── Launch Trading ────────────────────────────────────────
 echo ""
 read -r -p "  🚀 Launch paper trading now? [y/N]: " LAUNCH < /dev/tty

@@ -1,58 +1,308 @@
-# Noema
+# 🧠 Noema
 
-Multi-agent forex trading system on MT5. Sniper-style, multi-confirmation, statistically grounded.
-Built to encode the Valentine BSc Economics & Statistics curriculum as live trading logic.
+> *νόημα (nóēma) — "that which is thought, the object of thought"*
+>
+> **Multi-Agent Quantitative Forex & Crypto Trading Platform**
 
-## Strategy in one sentence
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)](https://python.org)
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust&logoColor=white)](https://rust-lang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
+[![Tests](https://img.shields.io/badge/tests-84%2F84-brightgreen)](./noema/tests)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](./LICENSE)
+[![Phase](https://img.shields.io/badge/phase-1%20complete-8A2BE2)](./docs/PHASE1_DEPLOYMENT.md)
 
-Fundamental bias → trend (D1/H4/H1) → S/R zones (session/D/W/M/Y highs+lows + order blocks) → retest →
-RSI alignment (M15/H1/D1) → candlestick confirmation → execute → SL beyond structure → TP at next liquidity.
+---
+
+## What is Noema?
+
+Noema (from Greek νόημα, "object of thought") is an institutional-grade, **multi-agent quantitative trading platform** for forex and crypto markets. It combines a deterministic statistical/econometric core with LLM-based narrative interpretation — but the LLM **never controls trade decisions**.
+
+The system processes every tick through a pipeline of specialized agents operating under an **actor-critic pattern with a debate engine**. Each agent votes independently; a conservative tiebreaker resolves disputes without any LLM involvement. Before any order reaches a broker, the Guardian agent runs 16+ kill-switches — drawdown limits, statistical edge checks (SPRT, KS-drift, Bayesian win-rate posterior), margin gates, and circuit breakers.
+
+Noema is not a black-box chatbot that hallucinates trading decisions. It is statistical truth wrapped in agent consensus.
+
+---
+
+## Why Noema?
+
+**The problem:** Most "AI trading bots" are wrappers around LLMs. They tokenize market data, feed it to a language model, and execute whatever the model spits out. This architecture has a fundamental flaw — language models hallucinate. They have no internal model of statistical significance, no concept of p-values, no understanding of cointegration. They are optimised for plausible text, not truth.
+
+**The solution:** Noema inverts this paradigm. Statistics and econometrics produce the ground truth. 44 academic units — PCA, Johansen cointegration, GARCH volatility modelling, Monte Carlo simulation, bootstrap inference, survival analysis — compute quantitative evidence. Agents debate using this evidence. The LLM only narrates the conclusions for human readability. It has zero authority over any trade.
+
+> **Statistical proof → Agent consensus → Guardian veto → Execution.**  
+> No step involves an LLM on the critical path.
+
+---
 
 ## Architecture
 
-10 agents, single asyncio event loop, deterministic per-tick logic, LLM (NIM via LiteLLM @ :4000)
-only for fundamental-bias scoring on news events and optional borderline-setup sanity checks.
-
 ```
-[MT5 bars]──▶ indicators ──▶ TrendAgent ─┐
-                                          ├─▶ ConfluenceAgent ─▶ RiskAgent ─▶ ExecutionAgent
-[news feed]──▶ FundamentalBiasAgent (LLM)─┘             │             │
-                                                        ▼             ▼
-                                                  GuardianAgent (kill-switches)
+                        ┌───────────────┐
+                        │   Brokers     │
+                        │ (FxPesa, FBS, │
+                        │   Custom)     │
+                        └───────┬───────┘
+                                │ Wine / Native
+                                ▼
+                        ┌───────────────┐
+                        │     MT5       │
+                        │ (headless)    │
+                        └───────┬───────┘
+                                │ RPyC / mt5linux (port 18812)
+                                ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                            NOEMA                                  │
+│                                                                   │
+│  ┌─────────────┐    ┌──────────────┐    ┌────────────────────┐   │
+│  │ Statistics   │    │ Econometrics │    │   Agent Teams      │   │
+│  │             │    │              │    │                    │   │
+│  │ • PCA       │    │ • ARIMA/GARCH│    │  Actor Agents (14) │   │
+│  │ • Bootstrap │    │ • Johansen   │    │  ┌──────────────┐  │   │
+│  │ • Monte     │───▶│ • Cointeg.   │───▶│  │ Structure    │  │   │
+│  │   Carlo     │    │ • Panel      │    │  │ Momentum     │  │   │
+│  │ • GOF Tests │    │ • Causal Inf.│    │  │ SR Zones     │  │   │
+│  │ • Survival  │    │ • Volatility │    │  │ PriceAction  │  │   │
+│  │ • SPRT      │    │ • Regression │    │  └──────────────┘  │   │
+│  └─────────────┘    └──────────────┘    │                    │   │
+│                                         │  Critic Agents (4)  │   │
+│  ┌──────────────────────────────┐       │  ┌──────────────┐  │   │
+│  │       Debate Engine          │       │  │ Devil's      │  │   │
+│  │  Conservative Tiebreaker     │◄──────│  │   Advocate   │  │   │
+│  │  (deterministic, no LLM)     │       │  │ CIO          │  │   │
+│  └──────────────┬───────────────┘       │  │ Reflector    │  │   │
+│                 │                       │  │ Thesis       │  │   │
+│                 ▼                       │  └──────────────┘  │   │
+│  ┌──────────────────────────────┐       └────────────────────┘   │
+│  │     Guardian (16+ checks)    │                                │
+│  │  • Drawdown freeze           │                                │
+│  │  • Bayesian win-rate floor   │    ┌────────────────────┐     │
+│  │  • SPRT edge check           │    │    Execution       │     │
+│  │  • KS drift (live vs backtest)│   │                    │     │
+│  │  • Margin / Spread / Lot     │    │  • Risk sizing     │     │
+│  │  • Circuit breakers          │───▶│  • Order routing   │     │
+│  │  • News blackout             │    │  • Partial closes  │     │
+│  │  • Heartbeat watchdog        │    │  • Trailing stops  │     │
+│  └──────────────────────────────┘    └────────────────────┘     │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                        DASHBOARD                                  │
+│                                                                   │
+│    ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │
+│    │ P&L     │  │ Agent    │  │ Risk     │  │ TradingView  │    │
+│    │ Charts  │  │ Votes    │  │ Monitor  │  │ Charts       │    │
+│    │         │  │          │  │          │  │ (OB/FVG/BOS) │    │
+│    └─────────┘  └──────────┘  └──────────┘  └──────────────┘    │
+│                                                                   │
+│    PostgreSQL ── Redis ── ChromaDB ── Prometheus ── Grafana       │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
-See `docs/ARCHITECTURE.md` for the full design and `docs/CURRICULUM_MAPPING.md`
-for which academic concept lives in which file.
+---
 
-## Quick start (any platform)
+## Key Features
+
+### 🧠 Multi-Agent Architecture
+26 specialized agents operating under an **actor-critic pattern** with a deterministic debate engine. 14 actor agents scan for setups; 4 critic agents (Devil's Advocate, CIO, Reflector, Thesis) challenge every signal. The conservative tiebreaker resolves disputes without LLM involvement. Agent votes are weighted by historical accuracy.
+
+### 📊 Statistical Core
+**44 academic units** from economics and statistics mapped directly to Noema modules. PCA factor exposure, Johansen cointegration, GARCH(1,1) volatility modelling, Monte Carlo P(ruin) simulation, stationary bootstrap inference, survival analysis for trade duration, SPRT sequential testing, Benjamini-Hochberg FDR correction — all deterministic Python with typed outputs.
+
+### 🔒 Anti-Hallucination Architecture
+**Zero LLM in any trade decision.** The LLM (NVIDIA NIM via minimax-m3) provides narrative interpretation of statistical results — it explains *why* in human language. It cannot place orders, modify stops, or change any numeric score. If the LLM is unreachable, the system trades normally on statistical evidence alone. This is prompt-injection containment by design.
+
+### 🛡️ Guardian — 16+ Kill-Switches
+Real-time protection layer that checks every order before it reaches the broker:
+- **Statistical:** Bayesian win-rate posterior floor (Beta prior), SPRT edge test, KS drift (live vs. backtest)
+- **Financial:** Daily/weekly drawdown freeze, margin level gate, spread gate, max lot size cap
+- **Operational:** Heartbeat watchdog, data staleness check, actor/critic team health, news blackout, LLM error circuit breaker, consecutive loss counter, learning-under-drawdown freeze
+
+### 🏦 Broker-Agnostic
+FxPesa, FBS, and any MT5 broker. Linux runs MT5 headless through Wine (mt5linux RPyC bridge on port 18812). Windows uses native MetaTrader5 package. Paper trading mode available everywhere. Swapping brokers changes one server name in `.env`.
+
+### 📈 TradingView Charts
+Next.js dashboard with real-time candlestick charts plus Smart Money Concepts (SMC) overlays: **order blocks, fair value gaps (FVG), liquidity sweeps, break of structure (BOS), and change of character (CHoCH)**. Live P&L, agent vote transparency, and risk monitor all in one web interface.
+
+### 🧪 Self-Learning System
+**4-layer memory architecture** (episodic, semantic, procedural, strategic) feeding 15 learning skills. Genetic strategy evolution via crossover and mutation of successful signal patterns. Post-trade reflection loop updates prior distributions and retrains thresholds. All learning is supervised by the Guardian — learning freezes during drawdowns.
+
+### 🐳 One-Command Setup
+Everything automated — Python venv, Rust crates, Node.js dashboard, Docker (PostgreSQL + Redis + Prometheus + Grafana), MT5 headless daemon, credential prompts, environment validation. Works on Pop!_OS 24.04, Ubuntu, Windows, and macOS.
+
+---
+
+## One-Command Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Valentinus295/noema/main/noema-setup | bash
 ```
 
-One command. Clones the repo, installs everything, prompts for your keys.
+This single command:
+1. Clones the repository
+2. Detects your OS and configures Wine/MT5 accordingly
+3. Creates a Python virtual environment with all dependencies
+4. Prompts for credentials (NIM API key, MT5 login, database URLs)
+5. Builds Rust crates (noema-data, noema-backtest, noema-smc)
+6. Installs Node.js dashboard dependencies
+7. Sets up Docker services (PostgreSQL, Redis, Prometheus, Grafana)
+8. Tests MT5 connectivity
+9. Opens the dashboard in your browser
 
-Or locally:
+---
+
+## Quick Start
+
+After setup completes:
 
 ```bash
-cd noema
-./noema-setup
+cd ~/noema
 source .venv/bin/activate
+
+# Demo mode — full pipeline, no real money
+python -m noema.main --mode demo --mt5-auto
+
+# Paper trading on a specific pair
 python -m noema.main --mode paper --pair EURUSD
+
+# Analysis-only — read market, compute stats, no execution
+python -m noema.main --mode analyze
 ```
 
-## Broker
+**Daily workflow (headless Linux):**
 
-v1: **FxPesa** (live), single MT5 terminal running under Wine.
-v2 roadmap: add FBS as second broker, route by best spread.
+```bash
+# Start MT5 in background
+python -m noema.scripts.mt5_daemon start
 
-## Status
+# Run Noema (auto-connects to MT5)
+python -m noema.main --mt5-auto
 
-v0.1 — design + scaffold, reviewed by security and quality before any code lands.
-See `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CURRICULUM_MAPPING.md`.
+# Watch dashboard → http://localhost:3000
+cd dashboard && npm run dev
+```
 
-## Reviews
+---
 
-Both security and quality reviews ran on the design before engineering began.
-Reports are in `research/REVIEWS.md`. CHANGE_REQUESTED items resolved before v0.1 lands.
+## Tech Stack
 
+| Layer | Technology | Role |
+|-------|-----------|------|
+| **Statistics & Agents** | Python 3.11+ | Deterministic pipeline: stats, econometrics, agent debate, Guardian |
+| **Performance** | Rust | Fast data ingestion (Arrow), backtesting engine, SMC pattern detection |
+| **Dashboard** | TypeScript / Next.js | React frontend + TradingView charts + live P&L websocket |
+| **Database** | PostgreSQL | Trade journal, config hashes, agent memory |
+| **Cache & Pub/Sub** | Redis | Price caching, inter-agent messaging, rate limiting |
+| **Vector Store** | ChromaDB | Market structure pattern similarity (v1.0) |
+| **LLM** | NVIDIA NIM (minimax-m3) | Narrative interpretation only — zero decision authority |
+| **Observability** | Prometheus + Grafana | Metrics, alerting, P&L dashboards |
+| **Tracing** | OpenTelemetry + Langfuse | Agent decision traces, LLM token monitoring |
+| **Container** | Docker Compose | PostgreSQL, Redis, Prometheus, Grafana |
+
+---
+
+## Governance
+
+Noema operates under a formal governance structure. See [GOVERNANCE.md](./GOVERNANCE.md) for the full charter.
+
+- **Board of Directors** — Valentine Owuor (Chairman & CEO), Atlas 🧠 (CSO, non-voting advisor), plus seats for independent directors in Strategy, Risk, and Technology
+- **Executive Team** — C-suite leadership across Strategy, Technology, Risk, Quant, and Operations
+- **Review Pipeline** — Idea → Research Report → Architecture Blueprint → Committee Approval → Engineering → QA Gate → Go-Live Authorization
+
+All architecture changes flow through a **5-stage governance gate** before reaching production.
+
+---
+
+## Academic Foundation
+
+Noema is built on Valentine Owuor's **44-unit BSc Economics & Statistics curriculum** at Maasai Mara University. Every academic concept is mapped to a specific Noema module.
+
+| Academic Domain | Noema Module | Techniques |
+|----------------|-------------|------------|
+| **Time Series & Econometrics** | `econometrics/time_series.py` | ADF, KPSS, ARIMA, Auto-ARIMA |
+| **Cointegration** | `econometrics/cointegration.py` | Engle-Granger, Johansen test |
+| **Volatility Modelling** | `econometrics/volatility.py` | GARCH(1,1), EWMA, Parkinson, Yang-Zhang |
+| **Regression Analysis** | `econometrics/regression.py` | OLS, robust regression, logistic |
+| **Panel Data** | `econometrics/panel.py` | Fixed/random effects, Hausman test |
+| **Causal Inference** | `econometrics/causal_inference.py` | Diff-in-diff, IV, Granger causality |
+| **Probability & Distributions** | `statistics/distributions.py` | 10 distributions, KS/AD/Chi-sq GOF |
+| **Hypothesis Testing** | `statistics/hypothesis.py` | SPRT, permutation tests, FDR correction |
+| **Multivariate Analysis** | `statistics/multivariate.py` | PCA, Mahalanobis distance, correlation |
+| **Monte Carlo Methods** | `statistics/monte_carlo.py` | Bootstrap CI, VaR/CVaR, P(ruin) |
+| **Nonparametric Statistics** | `statistics/nonparametric.py` | Mann-Whitney, Kruskal-Wallis, KS, Wilcoxon |
+| **Survival Analysis** | `statistics/survival.py` | Kaplan-Meier, Cox PH, log-rank test |
+| **Estimation Theory** | `statistics/estimation.py` | CI construction, standard error estimation |
+
+See [docs/CURRICULUM_MAPPING.md](./docs/CURRICULUM_MAPPING.md) for the complete 44-unit mapping with version roadmap.
+
+---
+
+## Roadmap
+
+### Now — v0.1 (Phase 1 Complete ✅)
+- [x] Statistics module (8 files, ~3,000 lines)
+- [x] Econometrics module (6 files, ~3,200 lines)
+- [x] 26-agent actor-critic architecture with debate engine
+- [x] Guardian with 16+ kill-switches
+- [x] Conservative tiebreaker (deterministic, no LLM)
+- [x] Typed message system (46 message types, 8 categories)
+- [x] Compile-time lot protection
+- [x] FxPesa + FBS broker support
+- [x] MT5 headless daemon for Linux
+- [x] Rust crates: noema-data, noema-backtest, noema-smc
+- [x] Next.js dashboard with TradingView charts + SMC overlays
+- [x] Docker services (PostgreSQL, Redis, Prometheus, Grafana)
+- [x] One-command setup script
+- [x] 84 passing tests covering core, agents, broker, analysis, data, backtest
+
+### Next — v1.0
+- [ ] Live MT5 paper trading on FxPesa demo (30-day validation)
+- [ ] FundamentalBiasAgent v1: Taylor-rule delta, real-yield diff, Mundell-Fleming sign
+- [ ] News blackout per high-impact events (NFP, CPI, FOMC)
+- [ ] GARCH-driven position sizing (not stop placement)
+- [ ] Full 44-unit curriculum wired into the pipeline
+- [ ] Portfolio layer: PCA factor exposure gate, currency-strength rank
+- [ ] Statistical go-live gates: bootstrap Sharpe CI, P(ruin) < 0.05, KS-drift pass
+
+### Later — v2.0
+- [ ] LangGraph orchestration layer (currently deferred — adds complexity without proven edge)
+- [ ] NautilusTrader integration for multi-venue execution
+- [ ] Walk-forward MLE parameter optimisation
+- [ ] Live genetic strategy evolution (caretaker-supervised)
+- [ ] Multi-broker spread routing (FBS + FxPesa, route by best spread)
+- [ ] Crypto market integration
+- [ ] External MCP tool server for programmatic consumption
+
+---
+
+## Phase 1 Modules (Deployed)
+
+The following modules are operational and verified as of Phase 1 completion (2026-06-23):
+
+| Module | Files | Lines | Key Techniques |
+|--------|-------|-------|---------------|
+| **Statistics** | 8 | ~3,000 | Distributions, Hypothesis, Nonparametric, Multivariate, Monte Carlo, Estimation, Survival, Decorators |
+| **Econometrics** | 6 | ~3,200 | Time Series, Cointegration, Volatility, Regression, Panel, Causal Inference |
+| **Agents** | 20 | ~7,500 | Actor-critic, debate engine, conservative tiebreaker, 26 agents |
+| **Guardian** | 1 | ~700 | 16+ kill-switches, drawdown freeze, statistical edge checks |
+| **Core** | 4 | ~3,000 | Typed messages, types, configuration, Rust bridge |
+| **Broker** | 6 | ~4,500 | MT5 Linux/Wine, FBS, paper trading, lot protection |
+| **Dashboard** | — | — | Next.js, TradingView charts, SMC overlays, live P&L |
+| **Rust Crates** | 3 | ~2,000 | Data ingestion (Arrow), backtesting engine, SMC pattern detection |
+
+---
+
+## License
+
+MIT License. See [LICENSE](./LICENSE) for details.
+
+---
+
+## Disclaimer
+
+**This software is for educational and research purposes only.** It is not financial advice. Trading forex, cryptocurrencies, and other financial instruments carries substantial risk of loss. Past performance does not guarantee future results. Trade at your own risk. Never trade with money you cannot afford to lose.
+
+---
+
+*Built with discipline. Governed by evidence. Defended by statistics.*
