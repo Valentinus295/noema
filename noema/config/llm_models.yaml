@@ -1,156 +1,83 @@
 # =============================================================================
 # Noema LLM Model Configuration
 # =============================================================================
-# Research date: 2026-06-23
-# Source: NVIDIA NIM API (https://integrate.api.nvidia.com/v1/models)
-# Free endpoint verification: https://build.nvidia.com/explore/discover
+# All models via NVIDIA NIM (https://integrate.api.nvidia.com/v1)
+# FREE for NVIDIA Developer Program members — register at build.nvidia.com
 #
-# ALL models below are accessible via NVIDIA NIM API (OpenAI-compatible).
-# Models marked "Free Endpoint" (nim_type_preview) are zero-cost for developers
-# under the NVIDIA API Trial Terms of Service.
-#
-# Key findings from research:
-#   - MiniMax M3: AVAILABLE as `minimaxai/minimax-m3` (primary)
-#   - MiniMax M2.7: AVAILABLE as `minimaxai/minimax-m2.7` (previous gen)
-#   - Kimi K2.6: AVAILABLE + Free Endpoint as `moonshotai/kimi-k2.6`
-#   - DeepSeek V4 Pro: AVAILABLE + Free Endpoint (best free reasoning model)
-#   - GLM 5.1: AVAILABLE + Free Endpoint (most API calls: 27.6M/month)
-#   - Nemotron 3 Ultra: AVAILABLE + Free Endpoint (1M context, hybrid Mamba)
-#   - Llama 4 Maverick: AVAILABLE as `meta/llama-4-maverick-17b-128e-instruct`
-#   - Qwen3 Next: AVAILABLE as `qwen/qwen3-next-80b-a3b-instruct`
-#   - Qwen3.5 122B/397B: AVAILABLE
-#   - Nemotron Mini 4B: AVAILABLE (fastest free option for Tier 3)
-#   - Gemma 3 4B: AVAILABLE (ultra-fast, good for deterministic tasks)
-#
-# Structured Output Support:
-#   All NIM OpenAI-compatible models support tool/function calling.
-#   Confirmed explicit structured output / JSON mode support:
-#   - DeepSeek V4 Pro: "Supports structured JSON output, function/tool calling"
-#   - GLM 5.1: "Supports structured output, reasoning traces, tool call responses"
-#   - Kimi K2.6: "Supports JSON-structured outputs for agentic workflows"
-#   - Nemotron 3 Ultra: Tool calling + reasoning (qwen3_coder tool parser)
-#   - All models support instructor via function_calling or tool_calls mode
-#
-# Free Endpoint Models (confirmed zero-cost):
-#   1. nvidia/nemotron-3-ultra-550b-a55b  - 550B MoE, 1M ctx, hybrid Mamba
-#   2. moonshotai/kimi-k2.6                - 1T MoE (32B active), 256K ctx
-#   3. deepseek-ai/deepseek-v4-pro         - 1.6T MoE (49B active), 1M ctx
-#   4. z-ai/glm-5.1                        - 754B MoE, 131K ctx
+# Models marked "FREE" have zero-cost endpoints (nim_type_preview).
+# Others are included in developer credits.
 # =============================================================================
 
 tiers:
-  # ---------------------------------------------------------------------------
-  # Tier 1: Decision — CIO, Trade Thesis, Devil's Advocate
-  # Needs: Strong reasoning, debate, multi-step analysis
-  # ---------------------------------------------------------------------------
   decision:
-    description: "CIO, Trade Thesis, Devil's Advocate — critical decision-making"
+    description: "CIO, Trade Thesis, Devil's Advocate — critical decisions"
     primary: "minimaxai/minimax-m3"
-    fallback:
-      - "deepseek-ai/deepseek-v4-pro"      # Best free reasoning model (GPQA 90.1%, AIME 95.2%)
-      - "moonshotai/kimi-k2.6"             # Strong agentic reasoning (AIME 96.4%)
+    fallbacks:
+      - "deepseek-ai/deepseek-v4-pro"                # FREE — top reasoning (GPQA 90.1%)
+      - "moonshotai/kimi-k2.6"                       # FREE — best agentic (HLE 54%)
+      - "nvidia/nemotron-3-ultra-550b-a55b"           # FREE — 1M ctx, finance-trained
+      - "nvidia/llama-3.1-nemotron-ultra-253b-v1"     # NVIDIA Ultra 253B
     temperature: 0.1
     max_tokens: 2048
-    latency_budget_s: 12.0
+    latency_budget_s: 15.0
     rpm_limit: 20
 
-  # ---------------------------------------------------------------------------
-  # Tier 2: Analysis — Macro, Fundamental
-  # Needs: Context interpretation, data synthesis, structured output
-  # ---------------------------------------------------------------------------
   analysis:
-    description: "Macro, Fundamental — context interpretation and data synthesis"
+    description: "Macro, Fundamental — context interpretation"
     primary: "minimaxai/minimax-m3"
-    fallback:
-      - "z-ai/glm-5.1"                     # Strong structured output, tool use (27.6M calls/mo)
-      - "nvidia/nemotron-3-ultra-550b-a55b" # 1M context, agentic reasoning, finance-trained
+    fallbacks:
+      - "z-ai/glm-5.1"                                # FREE — most used (27.6M calls/mo)
+      - "minimaxai/minimax-m2.7"                       # MiniMax M2.7
+      - "meta/llama-4-maverick-17b-128e-instruct"       # Llama 4 Maverick
+      - "nvidia/llama-3.3-nemotron-super-49b-v1.5"     # NVIDIA Super 49B
     temperature: 0.2
     max_tokens: 1536
-    latency_budget_s: 8.0
+    latency_budget_s: 10.0
     rpm_limit: 40
 
-  # ---------------------------------------------------------------------------
-  # Tier 3: Fast — Momentum, Price Action, Session, S/R, Trend
-  # Needs: Fast deterministic-style technical analysis, low latency
-  # ---------------------------------------------------------------------------
   fast:
-    description: "Momentum, Price Action, Session, S/R, Trend — technical analysis"
+    description: "Momentum, Price Action, Session, S/R — technical"
     primary: "minimaxai/minimax-m3"
-    fallback:
-      - "nvidia/nemotron-mini-4b-instruct" # Fastest NIM free model (~4B params)
-      - "google/gemma-3-4b-it"             # Ultra-fast, good quality/speed ratio
-    temperature: 0.0  # deterministic for technical analysis
-    max_tokens: 1024
-    latency_budget_s: 3.0
-    rpm_limit: 100
-
-  # ---------------------------------------------------------------------------
-  # Tier 4: Local — Future self-hosted models
-  # Needs: Runs on own hardware (DGX Spark, RTX, etc.)
-  # ---------------------------------------------------------------------------
-  local:
-    description: "Future: self-hosted models"
-    primary: null
-    fallback:
-      - "nvidia/nemotron-3-nano-30b-a3b"   # Good quality, self-hostable
-      - "meta/llama-4-maverick-17b-128e-instruct" # MoE, 17B active, self-hostable
-    temperature: 0.1
+    fallbacks:
+      - "deepseek-ai/deepseek-v4-pro"                 # FREE — fast reasoning
+      - "minimaxai/minimax-m2.7"                       # MiniMax M2.7
+      - "deepseek-ai/deepseek-v4-flash"                # DeepSeek Flash
+      - "google/gemma-4-31b-it"                        # Google Gemma 4
+    temperature: 0.0
     max_tokens: 1024
     latency_budget_s: 5.0
-    rpm_limit: 60
+    rpm_limit: 100
 
-# =============================================================================
-# Provider configuration
-# =============================================================================
 providers:
   nvidia_nim:
     base_url: "https://integrate.api.nvidia.com/v1"
-    api_key_env: "NVIDIA_NIM_API_KEY"
+    api_key_env: "NIM_API_KEY"
     type: "openai_compatible"
-  openai:
-    base_url: "https://api.openai.com/v1"
-    api_key_env: "OPENAI_API_KEY"
-    type: "openai"
-  anthropic:
-    base_url: "https://api.anthropic.com/v1"
-    api_key_env: "ANTHROPIC_API_KEY"
-    type: "anthropic"
 
-# =============================================================================
-# Instructor configuration
-# =============================================================================
 instructor:
-  mode: "md_json"           # md_json | json | function_calling | tool_calls
-  max_retries: 3            # retry on validation failure
-  validation_context: true  # pass Pydantic Field descriptions as validation context
+  mode: "md_json"
+  max_retries: 3
+  validation_context: true
 
-# =============================================================================
-# Cost tracking — approximate USD per 1M tokens
-# =============================================================================
-# Free Endpoint models: $0.00 (NVIDIA API Trial Terms of Service)
-# All other NIM models: pricing TBD; using approximate estimates
-# =============================================================================
-cost_per_1m_tokens:
-  # === Primary model ===
-  minimaxai/minimax-m3:              { input: 0.50,  output: 1.50  }
-
-  # === Free Endpoint fallbacks (zero cost) ===
-  deepseek-ai/deepseek-v4-pro:       { input: 0.00,  output: 0.00  }  # Free Endpoint
-  moonshotai/kimi-k2.6:              { input: 0.00,  output: 0.00  }  # Free Endpoint
-  z-ai/glm-5.1:                      { input: 0.00,  output: 0.00  }  # Free Endpoint
-  nvidia/nemotron-3-ultra-550b-a55b: { input: 0.00,  output: 0.00  }  # Free Endpoint
-
-  # === Fast fallbacks (NIM — pricing TBD) ===
-  nvidia/nemotron-mini-4b-instruct:  { input: 0.00,  output: 0.00  }  # NIM preview
-  google/gemma-3-4b-it:              { input: 0.00,  output: 0.00  }  # NIM preview
-
-  # === Local tier fallbacks (self-hosted — zero API cost) ===
-  nvidia/nemotron-3-nano-30b-a3b:    { input: 0.00,  output: 0.00  }
-  meta/llama-4-maverick-17b-128e-instruct: { input: 0.00, output: 0.00 }
-
-  # === External fallbacks (legacy — kept for multi-provider resilience) ===
-  claude-4-opus:      { input: 15.00, output: 75.00 }
-  claude-4-sonnet:    { input: 3.00,  output: 15.00 }
-  claude-4-haiku:     { input: 0.25,  output: 1.25  }
-  gpt-5-mini:         { input: 0.15,  output: 0.60  }
-  gpt-5:              { input: 1.25,  output: 10.00 }
+# ── Model Catalog (2026-06-23) ─────────────────────────────────
+# ✅ = Verified live on NVIDIA NIM endpoint
+# 💰 = FREE endpoint (zero cost for developers)
+#
+# 💰✅ deepseek-ai/deepseek-v4-pro          — Best reasoning, 1M context
+# 💰✅ moonshotai/kimi-k2.6                 — Best agentic, 256K context
+# 💰✅ z-ai/glm-5.1                         — Most used free (27.6M calls/mo)
+# 💰✅ nvidia/nemotron-3-ultra-550b-a55b    — Finance-trained, 1M context
+# ✅  minimaxai/minimax-m3                  — Primary (MiniMax M3)
+# ✅  minimaxai/minimax-m2.7                — MiniMax M2.7 (Valentine's pick)
+# ✅  nvidia/llama-3.1-nemotron-ultra-253b-v1 — NVIDIA Ultra 253B
+# ✅  nvidia/llama-3.3-nemotron-super-49b-v1.5 — NVIDIA Super 49B
+# ✅  meta/llama-4-maverick-17b-128e-instruct — Llama 4 Maverick
+# ✅  deepseek-ai/deepseek-v4-flash          — Fastest
+# ✅  google/gemma-4-31b-it                  — Google Gemma 4
+# ✅  stockmark/stockmark-2-100b-instruct    — Finance-specialized
+# ✅  writer/palmyra-fin-70b-32k             — Finance NLP, 32K context
+# ✅  nvidia/nemotron-4-340b-instruct         — NVIDIA Nemotron 4
+# ✅  mistralai/mistral-large-3-675b-instruct — Mistral Large
+# ✅  qwen/qwen3.5-122b-a10b                 — Qwen 3.5
+# ✅  stepfun-ai/step-3.7-flash              — Step 3.7 Flash
+# ✅  z-ai/glm-5.1                           — GLM 5.1
