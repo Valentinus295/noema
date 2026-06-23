@@ -588,12 +588,69 @@ if [ "$NEED_WINE" = "true" ]; then
     echo -e "  ${GREEN}Platform auto-detection handles everything.${NC}"
 fi
 
-# ── Launch immediately ────────────────────────────────────
+# ── Launch Dashboard ──────────────────────────────────────
+echo ""
+echo -e "  ${BOLD}${CYAN}── Starting Dashboard ──${NC}"
+echo ""
+
+DASHBOARD_PORT=3000
+API_PORT=8000
+
+# Find Chrome/Chromium
+CHROME=""
+for browser in google-chrome chromium-browser chromium google-chrome-stable; do
+    if command -v "$browser" &> /dev/null; then
+        CHROME="$browser"
+        break
+    fi
+done
+
+# Start backend server
+if [ -f dashboard/server/api.py ]; then
+    info "Starting dashboard API server on port $API_PORT..."
+    source .venv/bin/activate 2>/dev/null || true
+    cd dashboard
+    python server/api.py &
+    API_PID=$!
+    cd "$SCRIPT_DIR"
+    sleep 2
+    success "Dashboard API running (PID $API_PID)"
+fi
+
+# Start frontend dev server
+if [ -f dashboard/package.json ]; then
+    info "Starting dashboard frontend on port $DASHBOARD_PORT..."
+    cd dashboard
+    npm run dev -- --port $DASHBOARD_PORT --host &
+    FRONTEND_PID=$!
+    cd "$SCRIPT_DIR"
+    sleep 3
+    success "Dashboard frontend building (PID $FRONTEND_PID)"
+fi
+
+# Open in Chrome
+echo ""
+if [ -n "$CHROME" ]; then
+    info "Opening dashboard in $CHROME..."
+    $CHROME "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
+    success "Dashboard → http://localhost:$DASHBOARD_PORT"
+elif command -v xdg-open &> /dev/null; then
+    xdg-open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
+    success "Dashboard → http://localhost:$DASHBOARD_PORT"
+elif command -v open &> /dev/null; then
+    open "http://localhost:$DASHBOARD_PORT" 2>/dev/null &
+    success "Dashboard → http://localhost:$DASHBOARD_PORT"
+else
+    warn "Open http://localhost:$DASHBOARD_PORT in your browser"
+fi
+
+# ── Launch Trading ────────────────────────────────────────
 echo ""
 read -r -p "  🚀 Launch paper trading now? [y/N]: " LAUNCH
 if [ "${LAUNCH,,}" = "y" ] || [ "${LAUNCH,,}" = "yes" ]; then
     echo ""
     echo -e "  ${GREEN}Starting paper trading on EURUSD...${NC}"
+    echo -e "  ${CYAN}Dashboard: http://localhost:$DASHBOARD_PORT${NC}"
     echo ""
     source .venv/bin/activate 2>/dev/null || true
     exec python -m noema.main --mode paper --pair EURUSD
