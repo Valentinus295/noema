@@ -1,147 +1,195 @@
-# Noema
+# Noema — Phase 1
 
 ## Project Identity
 - **Full Name:** Noema
-- **Version:** 1.0.0 (initial release)
-- **Repository:** https://github.com/Valentinus295/noema (private)
-- **Owner:** Valentine (ovalentine964)
-- **Language:** Python 3.11+
-- **Build System:** Hatchling (pyproject.toml)
+- **Version:** 0.1.0 (Phase 1: Statistical & Econometric Core)
+- **Repository:** git@github.com:Valentinus295/noema.git (private)
+- **Owner:** Valentine Owuor
+- **Language:** Python 3.11+ with Rust extensions (PyO3)
+- **Build System:** Hatchling (pyproject.toml), uv package manager
 
 ## What This Is
-A **multi-agent forex trading system** that replicates the reasoning process of a disciplined institutional trader. It uses 17 specialized AI agents working in a 12-phase pipeline to analyze markets and execute trades on MT5 (FX Pesa, FBS brokers).
+A **multi-agent forex trading system** that replicates institutional trading discipline. Noema uses a 5-layer wave-based parallel orchestrator, deterministic-first analysis (TA-Lib, econometrics, Rust-backed SMC), NVIDIA NIM LLM integration for decision-layer debate, and 14 Guardian kill-switches for safety.
 
 ## Owner Background
-- **BSc Economics & Statistics** (4th year, semester 2)
+- **BSc Economics & Statistics** (Masinde Muliro University of Science & Technology — MMUST, graduating December 2026)
 - Strong in: Econometrics, Time Series Analysis, Hypothesis Testing, Multivariate Analysis, Probability Theory
-- Weave this background into the system's analytical brain (ARIMA, GARCH, cointegration, PCA, hypothesis testing)
+- This background is woven into the statistical core (`noema/statistics/`, `noema/econometrics/`)
 
-## Architecture Overview
+## Architecture Overview — 5-Layer Wave Model
+
 ```
-[MT5 bars]──▶ indicators ──▶ TrendAgent ─┐
-                                          ├─▶ ConfluenceAgent ─▶ RiskAgent ─▶ ExecutionAgent
-[news feed]──▶ FundamentalBiasAgent (LLM)─┘             │             │
-                                                        ▼             ▼
-                                                  GuardianAgent (kill-switches)
+Layer 1 (Data)          Layer 2 (Analysis)          Layer 3 (Decision)    Layer 4 (Exec)   Layer 5 (Learn)
+┌─────────────────┐    ┌──────────────────────┐    ┌────────────────┐    ┌──────────┐    ┌───────────┐
+│ MacroEconomic    │    │ MarketStructure       │    │ TradeThesis    │    │ RiskMgr  │    │ Learning  │
+│ CurrencyStrength │───▶│ InstitutionalFootprint│───▶│ DevilsAdvocate │───▶│ Execution│───▶│ Agent     │
+│ SessionIntel     │    │ SupportResistance     │    │ CIOAgent       │    │          │    │           │
+│                  │    │ Momentum              │    │                │    │          │    │           │
+│  (parallel)      │    │ PriceAction           │    │  (sequential)  │    │ (seq.)   │    │ (bg)      │
+└─────────────────┘    └──────────────────────┘    └────────────────┘    └──────────┘    └───────────┘
+         │                       │                       │                    │               │
+         └───────────────────────┴───────────────────────┴────────────────────┴───────────────┘
+                                              │
+                                    ┌─────────┴─────────┐
+                                    │   GuardianAgent    │ ← 14 kill-switches on EVERY cycle
+                                    │   (pre-trade +     │
+                                    │    runtime checks) │
+                                    └───────────────────┘
 ```
 
-## 12-Phase Trading Pipeline
-1. Fundamental Analysis (Macro Economic Agent)
-2. Trend Identification (Market Structure Agent)
-3. Support & Resistance Mapping (S/R Agent + Order Block Agent)
-4. Order Block Analysis (Institutional Footprint Agent)
-5. Waiting Phase (Session Intelligence Agent)
-6. Price Arrives at Zone (Opportunity Surveillance Agent)
-7. RSI Confirmation (Momentum Agent)
-8. Candlestick Confirmation (Price Action Agent)
-9. Trade Validation (Trade Thesis + Devil's Advocate + CIO)
-10. Risk Management (Risk Manager Agent)
-11. Execution (Execution Agent)
-12. Post-Trade Learning (Performance Analyst + Learning Agent)
+## Layer 1: Data Agents (parallel, deterministic)
 
-## 17 Agents (by department)
+| Agent | File | Purpose |
+|-------|------|---------|
+| MacroEconomicAgent | agents/macro.py | Economic calendar, fundamental bias |
+| CurrencyStrengthAgent | agents/currency.py | Ranks currencies by relative strength |
+| SessionIntelligenceAgent | agents/session.py | Trading session awareness, probability scoring |
 
-### Analysis Agents
-| # | Agent | File | Purpose |
-|---|-------|------|---------|
-| 1 | MacroEconomicAgent | agents/macro.py | Fundamental analysis, economic calendar |
-| 2 | CurrencyStrengthAgent | agents/currency.py | Ranks currencies by relative strength |
-| 3 | MarketStructureAgent | agents/structure.py | HH/HL/LH/LL, BOS, CHoCH detection |
-| 4 | InstitutionalFootprintAgent | agents/institutional.py | Order blocks, FVG, liquidity sweeps |
-| 5 | SupportResistanceAgent | agents/sr.py | Session/D/W/M/Y highs+low mapping |
-| 6 | SessionIntelligenceAgent | agents/session.py | Trading session awareness |
+## Layer 2: Analysis Agents (parallel, deterministic + LLM)
 
-### Signal Agents
-| # | Agent | File | Purpose |
-|---|-------|------|---------|
-| 7 | OpportunitySurveillanceAgent | agents/opportunity.py | Zone proximity monitoring |
-| 8 | MomentumAgent | agents/momentum.py | RSI confirmation M15/H1/D1 |
-| 9 | PriceActionAgent | agents/price_action.py | Candlestick pattern detection |
+| Agent | File | Purpose |
+|-------|------|---------|
+| MarketStructureAgent | agents/structure.py | HH/HL/LH/LL, BOS, CHoCH, trend identification |
+| InstitutionalFootprintAgent | agents/institutional.py | Order Blocks, FVG, Liquidity Sweeps (Rust-backed) |
+| SupportResistanceAgent | agents/sr.py | Session/D/W/M/Y high/low zone mapping |
+| MomentumAgent | agents/momentum.py | RSI confirmation across M15/H1/D1 |
+| PriceActionAgent | agents/price_action.py | Candlestick pattern detection (8 reversal patterns) |
 
-### Decision Agents
-| # | Agent | File | Purpose |
-|---|-------|------|---------|
-| 10 | TradeThesisAgent | agents/thesis.py | Builds case for/against trade |
-| 11 | DevilsAdvocateAgent | agents/devil.py | Destroys bad trades |
-| 12 | CIOAgent | agents/cio.py | Final decision maker |
+## Layer 3: Decision Agents (sequential LLM debate)
 
-### Execution Agents
-| # | Agent | File | Purpose |
-|---|-------|------|---------|
-| 13 | RiskManagerAgent | agents/risk.py | Position sizing, loss limits |
-| 14 | ExecutionAgent | agents/execution.py | Order placement via MT5 |
-| 15 | TradeManagementAgent | agents/management.py | SL/TP management |
+| Agent | File | Purpose |
+|-------|------|---------|
+| TradeThesisAgent | agents/thesis.py | Builds comprehensive case for/against trade |
+| DevilsAdvocateAgent | agents/devil.py | Critical analysis to destroy bad trades |
+| CIOAgent | agents/cio.py | Final decision maker (BUY/SELL/WAIT/REJECT) |
 
-### Learning Agents
-| # | Agent | File | Purpose |
-|---|-------|------|---------|
-| 16 | PerformanceAnalystAgent | agents/performance.py | Trade outcome tracking |
-| 17 | LearningAgent | agents/learning.py | Post-trade pattern learning |
+## Layer 4: Execution Agents (sequential, deterministic)
 
-## Analysis Modules
-| Module | File | Purpose |
-|--------|------|---------|
-| EconometricsEngine | analysis/econometrics.py | ARIMA, GARCH, Cointegration, ADF, PCA, Hurst |
-| FundamentalAnalyzer | analysis/fundamental.py | Economic event scoring, currency strength |
-| TechnicalAnalyzer | analysis/technical.py | EMA 50/200, RSI, MACD, ADX, ATR (TA-Lib or pandas) |
-| SMCForecaster | analysis/smc.py | Order Blocks, FVG, Liquidity Sweeps, BOS/CHoCH |
-| CandlestickDetector | analysis/candlestick.py | Engulfing, Morning/Evening Star, Hammer, Tweezers |
+| Agent | File | Purpose |
+|-------|------|---------|
+| RiskManagerAgent | agents/risk.py | Position sizing, loss limits, portfolio correlation |
+| ExecutionAgent | agents/execution.py | Order placement via MT5 (platform-agnostic) |
 
-## Infrastructure
+## Layer 5: Learning Agent (background LLM)
+
+| Agent | File | Purpose |
+|-------|------|---------|
+| LearningAgent | agents/learning.py | Post-trade pattern learning, knowledge updates |
+
+## Companion Services
+
 | Component | File | Purpose |
 |-----------|------|---------|
-| Agent (base) | core/agent.py | Base class for all agents, AgentReport dataclass |
-| MessageBus | core/message_bus.py | Async pub/sub inter-agent communication |
-| TradingPipeline | core/state_machine.py | 12-phase state machine with strict transitions |
-| NoemaConfig | core/config.py | YAML config with env var overrides |
-| BrokerBase | broker/base.py | Abstract broker interface |
-| MT5Broker | broker/mt5.py | MetaTrader 5 integration (FX Pesa, FBS) |
-| PaperBroker | broker/paper.py | Simulated trading for testing |
-| MarketDataFeed | data/feed.py | OHLCV data from MT5 or synthetic |
-| EconomicCalendar | data/calendar.py | Economic event data |
-| NoemaOrchestrator | main.py | Main entry point, coordinates all agents |
+| GuardianAgent | agents/guardian.py | 14 kill-switches: pre-trade vetos + runtime monitors |
+| ReflectorAgent | agents/reflector.py | Self-learning: reviews closed trades, updates priors |
+| TradeJournal | database/journal.py | DuckDB append-only trade journal |
+| TelegramBot | agents/telegram_bot.py | Telegram control surface + alerts |
 
-## Key Config (config/settings.yaml)
-- Broker type: paper (default) or mt5
-- Risk per trade: 1%
-- Max daily loss: 3%
-- Max weekly loss: 8%
-- Min risk/reward: 1:2
-- Pairs: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, NZDUSD, USDCAD
-- Timeframes: D1 (primary), H4 (secondary), H1 (entry), M15 (confirmation)
+## Orchestrator
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| ModernOrchestrator | core/orchestrator_modern.py | Wave-based parallel execution, layer coordination, broker health |
+| Settings | core/settings.py | Pydantic-settings unified config (YAML + env var overrides) |
+| NIMClient | core/nim_client.py | NVIDIA NIM LLM client (OpenAI-compatible API) |
+
+## Statistical & Econometric Core
+
+| Module | Path | Contents |
+|--------|------|----------|
+| Hypothesis Testing | statistics/hypothesis.py | t-tests, Mann-Whitney, Wilcoxon, Kruskal-Wallis, chi-squared, F-test, Shapiro-Wilk, etc. |
+| Distributions | statistics/distributions.py | Normal, t, chi-squared, F, lognormal, gamma, beta, Poisson, binomial, multivariate normal, Dirichlet, Wishart |
+| Time Series | econometrics/time_series.py | ADF, KPSS, ARMA/ARIMA, SARIMA, GARCH(1,1), EGARCH, ACF/PACF, Ljung-Box, Granger, Johansen, VAR/VECM, HP filter, Hurst, fractional differencing |
+| Copulas | econometrics/copulas.py | Gaussian, Student's t, Clayton, Gumbel, Frank (pair-vine, AIC selection) |
+
+## Rust Extensions
+
+| Crate | Path | Purpose |
+|-------|------|---------|
+| noema-smc | rust/noema-smc/ | SMC computation: Order Blocks, FVG, Liquidity Sweeps, BOS/CHoCH (native speed) |
+| noema-data | rust/noema-data/ | PyO3 OHLCV aggregation, stationary bootstrap |
+| noema-backtest | rust/noema-backtest/ | Walk-forward engine with slippage/spread modeling |
+
+## Dashboard
+
+| Component | Path | Tech |
+|-----------|------|------|
+| Frontend | dashboard/src/ | React 18 + TypeScript + Vite |
+| Backend | dashboard/server/ | FastAPI + WebSocket |
+| Charts | — | TradingView-style SMC candlestick charts |
+
+## Broker Integration
+
+- **Platform-agnostic**: Auto-detects Linux (Wine + mt5linux RPyC), Windows (native MT5), macOS (paper)
+- **MT5 headless**: Zero-click xvfb auto-start (`Noema_MT5_HEADLESS=true`)
+- **Lot protection**: Compile-time `Noema_MAX_LOT_SIZE` enforced on ALL order paths
+- **Broker disconnect alerting**: Telegram notifications on disconnect > 15s
+- **Supported brokers**: FX Pesa, FBS (any MT5 broker)
+
+## Key Config (`config/settings.yaml`)
+
+- Risk per trade: 0.25% (conservative default)
+- Daily loss limit: 1.0%
+- Spread cap: 3.0 pips
+- SL method: ATR(14)
+- Confluence threshold: 0.70
+- RSI: 14-period, oversold ≤30, overbought ≥70
+- Pairs: EURUSD, GBPUSD, USDJPY, AUDUSD, XAUUSD
+- Decision timeframe: M15
+- Guardian: heartbeat 30s, drawdown EWMA, Beta win-rate gate, SPRT, KS drift
+
+## Guardian Kill-Switches (14 total)
+
+| Category | Switches |
+|----------|----------|
+| Pre-trade | daily_loss_limit, weekly_loss_limit, news_blackout, max_spread, max_concurrent_positions, lot_size_cap |
+| Runtime | drawdown_ewma_throttle, drawdown_ewma_halt, beta_winrate_gate, sprt_edge_monitor, ks_drift_detection, learning_freeze |
+| Infrastructure | heartbeat_timeout, broker_data_stale |
 
 ## How to Run
+
 ```bash
-cd /home/valentinetech/noema
-python -m noema.main --mode paper --pair EURUSD    # Paper trading
-python -m noema.main --mode analyze --pair EURUSD  # Single analysis
-python -m noema.main --mode run                     # Continuous (needs MT5)
+# Setup (one command)
+./noema-setup
+
+# Activate environment
+source .venv/bin/activate
+
+# Run modes
+python -m noema.main --mode demo          # Demo trading (default)
+python -m noema.main --mode live          # Live trading (requires MT5)
+python -m noema.main --mode analyze EURUSD # Single-pair analysis
+
+# Dashboard
+cd dashboard && npm run dev               # Dev mode (localhost:3000)
+python dashboard/server/api.py            # API backend (localhost:8000)
 ```
 
-## Current Status (as of June 2026)
-- ✅ All 17 agents implemented
-- ✅ All analysis modules implemented
-- ✅ MT5 and Paper broker integration
-- ✅ Message bus and state machine
-- ✅ Main orchestrator with full 12-phase pipeline
-- ✅ Config system with YAML + env vars
-- ✅ Pushed to GitHub (private repo)
-- ⬜ Unit tests needed
-- ⬜ Integration tests needed
-- ⬜ Windows VPS setup for MT5 (FX Pesa/FBS)
-- ⬜ Telegram notifications
-- ⬜ Dashboard/monitoring
-- ⬜ Backtesting engine
-- ⬜ Live trading validation
+## Current Status (June 23, 2026)
+
+- ✅ 5-layer wave-based orchestrator
+- ✅ 14 Guardian kill-switches wired into pipeline
+- ✅ Statistical core: hypothesis tests, distributions, time series, copulas
+- ✅ Rust SMC, data, and backtest crates
+- ✅ Platform-agnostic broker (Linux/Windows/macOS)
+- ✅ MT5 headless daemon
+- ✅ React dashboard with FastAPI backend
+- ✅ Docker Compose (PostgreSQL + Redis + Grafana)
+- ✅ NVIDIA NIM LLM integration
+- ✅ CI/CD pipeline (GitHub Actions)
+- ✅ Structured logging (structlog)
+- ✅ DuckDB trade journal
+- ⬜ Backtesting validation (≥200 trades before live)
+- ⬜ Windows VPS for live MT5 deployment
+- ⬜ Multi-broker routing
+- ⬜ Advanced portfolio optimization
 
 ## Todo Tracker
-- [ ] Add unit tests for all agents and analysis modules
-- [ ] Add integration tests for the full pipeline
-- [ ] Set up Windows VPS with Wine + MT5 for live trading
-- [ ] Configure FX Pesa and FBS broker accounts
-- [ ] Add Telegram bot notifications for trade alerts
-- [ ] Build a monitoring dashboard
-- [ ] Implement backtesting engine
-- [ ] Add LLM integration for fundamental bias scoring (via LiteLLM proxy)
-- [ ] Performance optimization (parallel agent execution)
-- [ ] Add more candlestick patterns and SMC concepts
+
+- [ ] Run backtest validation on ≥2 years historical data
+- [ ] Deploy to Windows VPS for live MT5 trading
+- [ ] Achieve ≥200 live trades for Beta-posterior win-rate gate
+- [ ] Add multi-symbol portfolio optimization
+- [ ] Implement LLM fundamental bias shadow mode
+- [ ] Grafana dashboard for production monitoring
+- [ ] Telegram trade alerts in production

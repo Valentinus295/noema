@@ -1,114 +1,108 @@
 # Changelog
 
-All notable changes to the Noema will be documented in this file.
+All notable changes to Noema are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-06-09
+## [0.1.0] — 2026-06-23 — Phase 1: Statistical & Econometric Core
 
-### 🎉 Initial Release
+### 🏗️ Architecture Restructuring
 
-The Noema v1.0.0 is a **multi-agent forex trading system** that replicates the reasoning of a disciplined institutional trader.
+- **Wave-based parallel orchestrator** (`ModernOrchestrator`) replacing sequential 12-phase pipeline
+- **5-layer agent execution model**: Data → Analysis → Decision → Execution → Learning
+- **Layer 1 (Data)** — parallel, deterministic: MacroEconomic, CurrencyStrength, SessionIntelligence
+- **Layer 2 (Analysis)** — parallel, deterministic + LLM: MarketStructure, InstitutionalFootprint, SupportResistance, Momentum, PriceAction
+- **Layer 3 (Decision)** — sequential LLM debate: TradeThesis → DevilsAdvocate → CIOAgent
+- **Layer 4 (Execution)** — deterministic: RiskManager, ExecutionAgent
+- **Layer 5 (Learning)** — background LLM reflection: LearningAgent
+- **Companion services**: ReflectorAgent (self-learning), TradeJournal (DuckDB), TelegramBot
 
-### 🤖 Agents (17 total)
+### 🛡️ Guardian Kill-Switch System
 
-#### Analysis Department
-- **MacroEconomicAgent** - Fundamental analysis, economic calendar, currency strength scoring
-- **CurrencyStrengthAgent** - Ranks currencies by relative strength using technical + fundamental data
-- **MarketStructureAgent** - Detects HH/HL/LH/LL, BOS, CHoCH for trend identification
-- **InstitutionalFootprintAgent** - Identifies Order Blocks, Fair Value Gaps, Liquidity Sweeps
-- **SupportResistanceAgent** - Maps Session/D/W/M/Y highs+low as buy/sell zones
-- **SessionIntelligenceAgent** - Trading session awareness and probability scoring
+- **GuardianAgent** with 14 registered kill-switches
+- Pre-trade checks: daily/weekly loss limits, news blackout, heartbeat timeout, spread thresholds
+- Runtime monitors: drawdown EWMA control chart, Beta-posterior win-rate gate, SPRT sequential edge monitor
+- KS drift detection for live-vs-backtest distribution drift
+- Learning freeze on drawdown > configurable threshold
+- Broker health monitor with data-stale detection
 
-#### Signal Department
-- **OpportunitySurveillanceAgent** - Monitors zone proximity and trade candidates
-- **MomentumAgent** - RSI confirmation across M15/H1/D1 timeframes
-- **PriceActionAgent** - Candlestick pattern detection (8 reversal patterns)
+### 📊 Statistical & Econometric Core
 
-#### Decision Department
-- **TradeThesisAgent** - Builds comprehensive case for/against trades
-- **DevilsAdvocateAgent** - Critical analysis to destroy bad trades
-- **CIOAgent** - Final decision maker (BUY/SELL/WAIT/REJECT)
+- **Hypothesis testing**: Student's t (one/paired/independent), Welch's t, Mann-Whitney U, Wilcoxon, Kruskal-Wallis, Friedman, chi-squared, F-test, Levene, Shapiro-Wilk, normality tests, proportion z-tests
+- **Distributions**: Normal, Student's t, chi-squared, F, lognormal, gamma, beta, exponential, Poisson, binomial, negative binomial, geometric, multivariate normal, Dirichlet, Wishart
+- **Time series**: ADF, KPSS stationarity tests, ARMA/ARIMA (BIC-based order selection), SARIMA, GARCH(1,1), EGARCH, ACF/PACF, Ljung-Box, Granger causality, Johansen cointegration, VAR/VECM, HP filter, Hurst exponent, fractional differencing
+- **Copulas**: Gaussian, Student's t, Clayton, Gumbel, Frank (pair-vine with AIC selection)
 
-#### Execution Department
-- **RiskManagerAgent** - Position sizing, daily/weekly loss limits, correlation checks
-- **ExecutionAgent** - Order placement via MT5 (FX Pesa, FBS compatible)
-- **TradeManagementAgent** - SL/TP management, breakeven moves, partial close
+### 🔬 SMC Analysis (Rust-backed)
 
-#### Learning Department
-- **PerformanceAnalystAgent** - Tracks trade outcomes and performance metrics
-- **LearningAgent** - Post-trade pattern learning and strategy improvement
+- **Rust crate `noema-smc`**: Order Blocks, Fair Value Gaps, Liquidity Sweeps, BOS/CHoCH, Premium/Discount zones — all computed at native speed
+- **TradingView-style candlestick charts** with SMC overlays (OB, FVG, LS, BOS)
+- OB invalidation: close-through detection, minimum displacement ATR filter, configurable lookback
 
-### 📊 Analysis Modules
+### 🚀 Performance Infrastructure (Rust)
 
-- **EconometricsEngine** - ARIMA, GARCH, Cointegration, ADF, PCA, Hurst Exponent
-- **FundamentalAnalyzer** - Economic event scoring, currency strength calculation
-- **TechnicalAnalyzer** - EMA 50/200, RSI, MACD, ADX, ATR (TA-Lib or pandas fallback)
-- **SMCForecaster** - Order Blocks, Fair Value Gaps, Liquidity Sweeps, BOS/CHoCH
-- **CandlestickDetector** - 8 reversal patterns with strength scoring
+- **`noema-data`**: PyO3-backed OHLCV aggregation with Polars DataFrame output, stationary bootstrap for permutation tests
+- **`noema-backtest`**: Walk-forward engine with train/test splits, explicit slippage + spread modeling, session-aware spread multipliers
 
-### 🔧 Infrastructure
+### 🔧 Broker Resilience
 
-- **Async MessageBus** - Pub/sub inter-agent communication
-- **TradingPipeline** - 12-phase state machine with strict state transitions
-- **BrokerBase** - Abstract broker interface
-- **MT5Broker** - MetaTrader 5 integration (FX Pesa, FBS)
-- **PaperBroker** - Simulated trading for safe testing
-- **MarketDataFeed** - OHLCV data from MT5 or synthetic generation
-- **EconomicCalendar** - Economic event data with API + fallback
-- **NoemaConfig** - YAML configuration with environment variable overrides
+- **Platform-agnostic broker auto-detection**: Linux (Wine + mt5linux RPyC), Windows (native MT5), macOS (paper)
+- **MT5 headless daemon**: Zero-click auto-start using xvfb, no window needed
+- **Lot protection**: Compile-time `Noema_MAX_LOT_SIZE` enforcement on ALL order paths
+- **Broker disconnect alerting**: Telegram notifications on disconnect > 15s and reconnect
+- **Reconnection logic**: Automatic retry with exponential backoff
+- **`read -s` silent credential input** in `noema-setup`
 
-### 🎯 12-Phase Trading Pipeline
+### 🖥️ Dashboard
 
-1. Fundamental Analysis → Currency strength scores
-2. Trend Identification → Bullish/Bearish/Range
-3. Support & Resistance → Buy/Sell zones mapped
-4. Order Block Analysis → Institutional footprints
-5. Waiting Phase → WAIT for price to reach zone
-6. RSI Confirmation → RSI ≤30 (buy) / ≥70 (sell)
-7. Candlestick Confirmation → Valid reversal pattern
-8. Trade Validation → All conditions met
-9. Risk Management → Position sizing, SL/TP
-10. Execution → Place order via MT5
-11. Trade Management → Monitor, move to BE, partial close
-12. Post-Trade Learning → Store outcome, update knowledge
+- **React/TypeScript** frontend with Vite
+- **FastAPI** backend with configurable CORS (`Noema_CORS_ORIGIN`)
+- WebSocket real-time updates with auth
+- Health check endpoints, metrics, trade journal
 
-### 📈 Trading Pairs
+### 🔐 Security Hardening
 
-- EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, NZDUSD, USDCAD
+- GitHub PAT purged from `.git/config` (now SSH)
+- All credentials in `.env` (chmod 600, gitignored)
+- Comprehensive `.gitignore` (secrets, databases, logs, caches)
+- CI pipeline with security scanning (bandit, cargo audit)
+- Docker resource limits on all services
 
-### 🛡️ Risk Management
+### 📦 Infrastructure
 
-- Configurable risk per trade (default: 1%)
-- Maximum daily loss limit (default: 3%)
-- Maximum weekly loss limit (default: 8%)
-- Minimum risk/reward ratio (default: 1:2)
-- Maximum open trades limit
-- Correlation risk checks
+- **Docker Compose**: Noema app + PostgreSQL + Redis + Grafana + Prometheus
+- **Pydantic-settings** unified config system (`noema/core/settings.py`)
+- **Structured logging** via structlog with agent binding
+- **DuckDB** trade journal with append-only event log
+- **NVIDIA NIM** integration via OpenAI-compatible client (Llama 3.3 70B / Llama 3.1 8B)
+- **uv** package manager with `uv.lock`
 
-### 📝 Configuration
+### 🧪 Testing
 
-- YAML-based configuration (`config/settings.yaml`)
-- Environment variable overrides (`.env`)
-- Multiple broker support (paper, MT5)
-- Configurable trading pairs and timeframes
+- Unit tests for statistical core: hypothesis tests, distributions, time series
+- Guardian kill-switch tests (all 14 switches)
+- Broker lot protection tests
+- CI/CD via GitHub Actions
+
+### 🗑️ Removed
+
+- Dead 12-phase state machine (`core/state_machine.py`)
+- Unused message bus v1
+- Dual-architecture cruft (old 7-agent function-based agents: trend.py, confluence.py, fundamental.py, portfolio.py)
+- VMPM migration artifacts: `MASTER_RESTRUCTURING_PLAN.md`, `REPORT_ARCHITECTURE.md`, `REPORT_MODERN_AGENTS.md`, `REPORT_RESEARCH.md`, `REPORT_TECH_STACK.md`, `RESEARCH_SWARM_RESULTS.md`
 
 ---
 
-## [Unreleased]
+## [0.0.1] — 2026-06-09
 
-### Planned Features
-- Unit tests for all agents and analysis modules
-- Integration tests for full pipeline
-- Backtesting engine
-- Telegram notifications
-- Performance dashboard
-- LangGraph orchestration (v2.0)
-- LLM integration for fundamental bias
-- Multi-broker routing
-- Advanced portfolio management
-- Web-based monitoring UI
+### Initial Scaffold
+
+- 17-agent blueprint (pre-restructuring)
+- 12-phase sequential trading pipeline
+- Basic MT5 broker integration
+- YAML-based configuration
+- Analysis modules: econometrics, technical, SMC, candlestick patterns
 
 ---
 
@@ -116,11 +110,11 @@ The Noema v1.0.0 is a **multi-agent forex trading system** that replicates the r
 
 | Version | Date | Description |
 |---------|------|-------------|
-| 1.0.0 | 2026-06-09 | Initial release with 17 agents, 12-phase pipeline |
-| 0.1.0 | 2026-06-09 | Design + scaffold (internal) |
+| 0.1.0 | 2026-06-23 | Phase 1: Statistical core, Guardian, Rust, Dashboard, Broker resilience |
+| 0.0.1 | 2026-06-09 | Initial scaffold (pre-restructuring) |
 
 ---
 
 ## Contributors
 
-- **Valentine** - Creator and Lead Developer
+- **Valentine** — Creator and Lead Developer
