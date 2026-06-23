@@ -45,6 +45,37 @@ else
     cd "$SCRIPT_DIR"
 fi
 
+# ── Self-repair: fix pyproject.toml if [project.urls] before deps ──
+if [ -f pyproject.toml ] && grep -q "^\[project\.urls\]" pyproject.toml; then
+    if head -50 pyproject.toml | awk '/\[project\.urls\]/{found=1} /^dependencies =/{if(found){print "broken"; exit}}' | grep -q broken; then
+        echo ""
+        echo -e "  ${YELLOW}Repairing pyproject.toml structure...${NC}"
+        python3 -c "
+content = open('pyproject.toml').read()
+lines = content.split('\n')
+new, urls_block, in_urls = [], [], False
+for line in lines:
+    if line.startswith('[project.urls]'):
+        in_urls = True
+        urls_block.append(line)
+    elif in_urls:
+        if line.startswith('[') or (line.strip() and not line.startswith('Homepage') and not line.startswith('Repository') and not line.startswith('Documentation') and not line.startswith('Issues')):
+            in_urls = False
+        else:
+            urls_block.append(line)
+            continue
+    if not in_urls:
+        new.append(line)
+# Insert urls before [build-system]
+final = '\n'.join(new)
+urls_text = '\n'.join(urls_block)
+final = final.replace('\n[build-system]', f'\n{urls_text}\n[build-system]')
+open('pyproject.toml','w').write(final)
+print('OK')
+" 2>/dev/null && echo -e "  ${GREEN}✓${NC} pyproject.toml fixed" || echo -e "  ${RED}✗${NC} Could not auto-fix"
+    fi
+fi
+
 # ── Colors ───────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
