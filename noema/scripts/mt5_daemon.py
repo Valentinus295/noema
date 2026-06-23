@@ -367,7 +367,7 @@ def wait_for_mt5_ready(
         host=h,
         port=p,
         timeout=timeout,
-        hint="MT5 did not become ready. Check: 1) Wine installed? 2) MT5 installed? 3) mt5linux server active?",
+        hint="MT5 did not become ready. Likely: 1) mt5linux EA not installed in MT5 (pip install mt5linux && mt5linux.install), 2) EA not attached to chart, 3) Wine/MT5 not installed",
     )
     return False
 
