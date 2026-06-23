@@ -388,9 +388,9 @@ prompt_choice \
 prompt_choice \
     "Trading Mode" \
     "TRADING_MODE" \
-    "paper" \
-    "paper, live, analyze" \
-    "→ paper=simulated, live=real money, analyze=read-only"
+    "demo" \
+    "demo, live, analyze" \
+    "→ demo=real data + demo money, live=real money, analyze=read-only"
 
 echo ""
 echo -e "  ${BOLD}${CYAN}── Optional: Dashboard ──${NC}"
