@@ -258,25 +258,68 @@ prompt_choice \
     "→ Model ID as recognized by NVIDIA NIM endpoint"
 
 echo ""
-echo -e "  ${BOLD}${CYAN}── MetaTrader 5 ──${NC}"
+echo -e "  ${BOLD}${CYAN}── MetaTrader 5 Broker ──${NC}"
+echo ""
+
+# Broker selection with auto-configured server
+BROKER_CHOICE=""
+echo -e "  ${BOLD}Which broker are you using?${NC}"
+echo -e "    ${CYAN}1${NC}) FxPesa (fxpesa.com)"
+echo -e "    ${CYAN}2${NC}) FBS (fbs.com)"
+echo -e "    ${CYAN}3${NC}) Other MT5 broker"
+read -r -p "  Choose [1-3]: " BROKER_CHOICE
+
+case "$BROKER_CHOICE" in
+    1)
+        BROKER_NAME="FxPesa"
+        DEMO_SERVER="FxPesa-Demo"
+        LIVE_SERVER="FxPesa-Live"
+        ;;
+    2)
+        BROKER_NAME="FBS"
+        DEMO_SERVER="FBS-Demo"
+        LIVE_SERVER="FBS-Real"
+        ;;
+    *)
+        BROKER_NAME="Custom"
+        DEMO_SERVER=""
+        LIVE_SERVER=""
+        ;;
+esac
+
+echo ""
+echo -e "  ${BOLD}Choose account type:${NC}"
+echo -e "    ${CYAN}1${NC}) Demo / Paper (${DEMO_SERVER:-enter server manually})"
+echo -e "    ${CYAN}2${NC}) Live / Real (${LIVE_SERVER:-enter server manually})"
+read -r -p "  Choose [1-2]: " ACCT_TYPE
+
+if [ "$ACCT_TYPE" = "2" ]; then
+    MT5_SERVER="${LIVE_SERVER}"
+    echo -e "  ${RED}⚠️  LIVE TRADING selected — real money at risk${NC}"
+else
+    MT5_SERVER="${DEMO_SERVER}"
+    echo -e "  ${GREEN}✓ Demo trading — no real money${NC}"
+fi
+
+if [ "$BROKER_CHOICE" = "3" ] || [ -z "$MT5_SERVER" ]; then
+    read -r -p "  Enter your broker server name: " MT5_SERVER
+fi
+
+echo ""
+echo "Noema_MT5_SERVER=${MT5_SERVER}" >> .env
+success "Broker: ${BROKER_NAME} | Server: ${MT5_SERVER}"
 
 prompt_secret \
-    "MT5 Account Number" \
+    "${BROKER_NAME} MT5 Login" \
     "Noema_MT5_LOGIN" \
     "" \
-    "→ Your MT5 trading account login (REQUIRED for live/paper trading)"
+    "→ Your ${BROKER_NAME} account number"
 
 prompt_secret \
-    "MT5 Password" \
+    "${BROKER_NAME} MT5 Password" \
     "Noema_MT5_PASSWORD" \
     "" \
-    "→ Your MT5 trading account password"
-
-prompt_secret \
-    "MT5 Server" \
-    "Noema_MT5_SERVER" \
-    "FxPesa-Demo" \
-    "→ Broker server name (FxPesa-Demo, FBS-Real, MetaQuotes-Demo, etc.)"
+    "→ Your ${BROKER_NAME} trading password"
 
 echo ""
 echo -e "  ${BOLD}${CYAN}── Database ──${NC}"
@@ -478,7 +521,50 @@ echo ""
 echo -e "  ${YELLOW}⚠️  Start with paper trading. Validate on demo 2+ weeks before live.${NC}"
 echo ""
 
+# ── MT5 Connection Guide ──────────────────────────────────
+echo ""
+echo -e "  ${BOLD}${CYAN}── How Noema connects to MT5 ──${NC}"
+echo ""
+echo -e "  ${CYAN}┌─────────────────────────────────────────┐${NC}"
+echo -e "  ${CYAN}│  Your Machine (Pop!_OS / Linux)         │${NC}"
+echo -e "  ${CYAN}│                                         │${NC}"
+echo -e "  ${CYAN}│  ┌──────────┐   RPyC (port 18812)       │${NC}"
+echo -e "  ${CYAN}│  │  Noema   │ ──────────────────────►  │${NC}"
+echo -e "  ${CYAN}│  │ (Python) │ ◄──────────────────────  │${NC}"
+echo -e "  ${CYAN}│  └──────────┘   mt5linux bridge        │${NC}"
+echo -e "  ${CYAN}│       │                                 │${NC}"
+echo -e "  ${CYAN}│       │  ┌──────────────────────┐       │${NC}"
+echo -e "  ${CYAN}│       └──│  MT5 Terminal (Wine)  │       │${NC}"
+echo -e "  ${CYAN}│          │  → Your Broker       │       │${NC}"
+echo -e "  ${CYAN}│          │  → Live Prices       │       │${NC}"
+echo -e "  ${CYAN}│          │  → Order Execution   │       │${NC}"
+echo -e "  ${CYAN}│          └──────────────────────┘       │${NC}"
+echo -e "  ${CYAN}│                                         │${NC}"
+echo -e "  ${CYAN}│  ┌──────────┐   WebSocket :3000         │${NC}"
+echo -e "  ${CYAN}│  │Dashboard │ ◄── real-time P&L ──►    │${NC}"
+echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
+echo -e "  ${CYAN}└─────────────────────────────────────────┘${NC}"
+echo ""
+if [ "$NEED_WINE" = "true" ]; then
+    echo -e "  ${BOLD}Daily workflow:${NC}"
+    echo ""
+    echo -e "  ${CYAN}# 1. Start MT5 (must be running before trading)${NC}"
+    echo -e "  wine \"$WINE_MT5_PATH\""
+    echo -e "  # Login, keep it open"
+    echo ""
+    echo -e "  ${CYAN}# 2. Run Noema${NC}"
+    echo -e "  source .venv/bin/activate"
+    echo -e "  python -m noema.main --mode live"
+    echo ""
+    echo -e "  ${CYAN}# 3. Watch dashboard${NC}"
+    echo -e "  cd dashboard && npm run dev  →  http://localhost:3000"
+    echo ""
+    echo -e "  ${GREEN}Noema connects to MT5 automatically via mt5linux bridge.${NC}"
+    echo -e "  ${GREEN}Platform auto-detection handles everything.${NC}"
+fi
+
 # ── Launch immediately ────────────────────────────────────
+echo ""
 read -r -p "  🚀 Launch paper trading now? [y/N]: " LAUNCH
 if [ "${LAUNCH,,}" = "y" ] || [ "${LAUNCH,,}" = "yes" ]; then
     echo ""
