@@ -29,6 +29,17 @@ logger = structlog.get_logger(__name__)
 # ── Legacy state / standalone functions (preserved for backward compat) ──
 
 
+def _get_compile_time_max_lot() -> float:
+    """Return the compile-time max lot size constant.
+    
+    Binds GuardianState.max_lot_size to Noema_MAX_LOT_SIZE at import time,
+    ensuring both the logical check (Guardian) and physical gate (lot_protection)
+    use the same constant. See QS WARNING-1.
+    """
+    from noema.broker.lot_protection import Noema_MAX_LOT_SIZE
+    return Noema_MAX_LOT_SIZE
+
+
 @dataclass
 class GuardianState:
     """Mutable state tracked by the Guardian across cycles."""
@@ -42,7 +53,7 @@ class GuardianState:
     news_blackout_until: datetime | None = None
     spread_multiplier: float = 2.0
     # Extended fields for kill-switch tracking
-    max_lot_size: float = 1.0
+    max_lot_size: float = field(default_factory=lambda: _get_compile_time_max_lot())
     trading_halted: bool = False
     halt_reason: str = ""
     consecutive_losses: int = 0
@@ -60,6 +71,18 @@ class GuardianState:
     llm_errors: int = 0
     max_llm_errors: int = 10
     audit_log: list[dict[str, Any]] = field(default_factory=list)
+    # ── Phase 1: New kill-switch state ──
+    # Kill-switch #15: Actor broken (silenced agents)
+    actor_rejection_counts: dict[str, int] = field(default_factory=dict)
+    actor_max_rejections: int = 50  # Noema_ACTOR_MAX_REJECTIONS
+    silenced_agents: set[str] = field(default_factory=set)
+    # Kill-switch #16: Learning under drawdown
+    learning_freeze_drawdown: float = 0.10  # Noema_LEARNING_FREEZE_DRAWDOWN
+    learning_frozen: bool = False
+    # Critic team monitoring
+    critic_team_down: bool = False
+    critic_min_quorum: int = 2
+    critic_responses_this_cycle: int = 0
 
 
 def check_daily_loss(state: GuardianState) -> bool:
@@ -148,6 +171,112 @@ def check_data_stale(state: GuardianState) -> bool:
     when last_tick is > 5 seconds old.
     """
     return state.trading_halted and state.halt_reason == "data_stale"
+
+
+# ── NEW Kill-Switch Functions (Phase 1) ─────────────────────────────
+
+def check_actor_broken(state: GuardianState) -> bool:
+    """Kill-switch #15: Check if any actor agent has been silenced.
+
+    An agent is silenced when its proposals are rejected N consecutive times
+    (default 50). The agent remains silenced until human review.
+
+    Returns True if any agent has been silenced (trade should be halted for review).
+    """
+    return len(state.silenced_agents) > 0
+
+
+def check_learning_under_drawdown(state: GuardianState) -> bool:
+    """Kill-switch #16: Freeze learning if drawdown exceeds threshold.
+
+    Checked EVERY TRADE (real-time), not weekly.
+    If running drawdown > Noema_LEARNING_FREEZE_DRAWDOWN (default 10%),
+    freeze ALL learning until manual review.
+    """
+    if state.drawdown_peak_equity <= 0 or state.account_equity <= 0:
+        return False
+    drawdown = (state.drawdown_peak_equity - state.account_equity) / state.drawdown_peak_equity
+    return drawdown >= state.learning_freeze_drawdown
+
+
+def check_critic_team_down(state: GuardianState) -> bool:
+    """Check if the critic team is non-responsive.
+
+    ZeroResponsePolicy: If zero CriticTeam responses within timeout →
+    IMMEDIATE KILL. MinQuorumRule: If < 2 responses → KILL.
+    """
+    return state.critic_team_down
+
+
+def update_actor_rejection(state: GuardianState, agent_name: str, rejected: bool) -> None:
+    """Track per-agent proposal rejections for kill-switch #15.
+
+    Resets on first acceptance. Silences agent after 
+    actor_max_rejections consecutive rejections.
+    """
+    if not rejected:
+        state.actor_rejection_counts[agent_name] = 0
+        return
+
+    count = state.actor_rejection_counts.get(agent_name, 0) + 1
+    state.actor_rejection_counts[agent_name] = count
+
+    if count >= state.actor_max_rejections and agent_name not in state.silenced_agents:
+        state.silenced_agents.add(agent_name)
+        logger.error(
+            "guardian_actor_silenced",
+            agent=agent_name,
+            consecutive_rejections=count,
+            reason="kill-switch #15: actor_broken",
+        )
+        state.audit_log.append({
+            "event": "actor_silenced",
+            "agent": agent_name,
+            "consecutive_rejections": count,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+
+def set_critic_team_down(state: GuardianState, down: bool = True, reason: str = "") -> None:
+    """Set the critic_team_down flag.
+
+    Called by HealthChecker→Guardian bridge when:
+    - Zero CriticTeam responses within timeout
+    - Fewer than MIN_QUORUM responses
+    """
+    if down and not state.critic_team_down:
+        state.critic_team_down = True
+        state.trading_halted = True
+        state.halt_reason = f"critic_team_down: {reason}"
+        logger.critical(
+            "guardian_critic_team_down",
+            reason=reason,
+        )
+        state.audit_log.append({
+            "event": "critic_team_down",
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    elif not down:
+        state.critic_team_down = False
+
+
+def set_learning_frozen(state: GuardianState, frozen: bool = True, drawdown_pct: float = 0.0) -> None:
+    """Freeze/unfreeze learning (kill-switch #16)."""
+    if frozen and not state.learning_frozen:
+        state.learning_frozen = True
+        logger.warning(
+            "guardian_learning_frozen",
+            reason="kill-switch #16: learning_under_drawdown",
+            drawdown_pct=round(drawdown_pct, 4),
+        )
+        state.audit_log.append({
+            "event": "learning_frozen",
+            "drawdown_pct": drawdown_pct,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    elif not frozen:
+        state.learning_frozen = False
 
 
 def check_win_rate_floor(state: GuardianState) -> bool:
@@ -333,6 +462,10 @@ class GuardianAgent(DeterministicAgent):
         ("drawdown", "Max Drawdown", "Drawdown exceeds configured maximum"),
         ("llm_errors", "LLM Error Rate", "Too many LLM failures"),
         ("data_stale", "Stale Data Protection", "Broker data is stale — last tick > 5s old"),
+        # ── Phase 1: New kill-switches ──
+        ("actor_broken", "Actor Broken (KS #15)", "Agent silenced after N consecutive rejections"),
+        ("learning_under_drawdown", "Learning Under Drawdown (KS #16)", "Freeze all learning when drawdown > 10%"),
+        ("critic_team_down", "Critic Team Down", "Zero critic responses or below quorum — IMMEDIATE KILL"),
     ]
 
     # ── Pipeline Integration Methods ────────────────────────────────
@@ -398,6 +531,19 @@ class GuardianAgent(DeterministicAgent):
             ("data_stale", check_data_stale(state), {
                 "value": "stale" if check_data_stale(state) else "fresh",
                 "threshold": "fresh data required"
+            }),
+            # ── Phase 1: New kill-switch checks ──
+            ("actor_broken", check_actor_broken(state), {
+                "value": f"{len(state.silenced_agents)} agents silenced",
+                "threshold": "0 silenced agents"
+            }),
+            ("learning_under_drawdown", check_learning_under_drawdown(state), {
+                "value": "frozen" if state.learning_frozen else "active",
+                "threshold": f"{state.learning_freeze_drawdown:.0%} drawdown"
+            }),
+            ("critic_team_down", check_critic_team_down(state), {
+                "value": "down" if state.critic_team_down else "responsive",
+                "threshold": f"min {state.critic_min_quorum} responses"
             }),
         ]
 
@@ -575,7 +721,7 @@ class GuardianAgent(DeterministicAgent):
         it via GuardianAgent.__init__. We store a reference for all methods.
         """
         # Access the state reference stored on the instance
-        if not hasattr(self, '_guardian_state'):
+        if not hasattr(self, '_guardian_state') or self._guardian_state is None:
             raise RuntimeError("GuardianAgent._guardian_state not set. Pass GuardianState to __init__.")
         return self._guardian_state
 

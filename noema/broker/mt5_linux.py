@@ -41,6 +41,7 @@ import structlog
 
 from noema.broker.base import BrokerBase, OrderResult, Position
 from noema.broker.connection import MT5ConnectionManager
+from noema.broker.lot_protection import reject_order_if_exceeds_max_lot, Noema_MAX_LOT_SIZE
 
 logger = structlog.get_logger(__name__)
 
@@ -749,6 +750,23 @@ class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
         """
         if not self._connected:
             return OrderResult(success=False, error="Not connected to MT5")
+
+        # ── MAX LOT SIZE HARD GATE (Phase 1 — compile-time constant) ──
+        # This is the PHYSICAL barrier. Rejects BEFORE any MT5 call.
+        # Even if the Guardian's logical check somehow fails, this gate
+        # ensures no oversized order ever reaches the broker.
+        # Defense-in-depth: Guardian checks + BrokerGateway checks
+        try:
+            reject_order_if_exceeds_max_lot(volume, symbol=symbol)
+        except Exception as exc:
+            logger.error(
+                "order_rejected_max_lot",
+                symbol=symbol,
+                lot_size=volume,
+                max_lot=Noema_MAX_LOT_SIZE,
+                error=str(exc),
+            )
+            return OrderResult(success=False, error=str(exc))
 
         # ── Stale-data protection: block order if last tick is > 5s old ──
         if self.data_stale:

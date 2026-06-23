@@ -238,7 +238,16 @@ async def get_narration(bias_score: float, news: str) -> BiasNarration:
 - [ ] **Fix hardcoded path** in `config/settings.yaml`
 - [ ] **Write import smoke tests** — just verify all modules can be imported without errors
 
-### Phase 1: Foundation (Week 2-3)
+### Phase 1: Foundation (Week 2-3) ✅ CORE COMPLETE (2026-06-23)
+
+Statistics & econometrics foundations deployed. See [docs/PHASE1_DEPLOYMENT.md](docs/PHASE1_DEPLOYMENT.md) for full QA results.
+
+- [x] **Statistics module** — distributions, hypothesis, nonparametric, multivariate, monte_carlo, estimation, survival, decorators (8 modules)
+- [x] **Econometrics module** — time_series, cointegration, volatility, regression, panel, causal_inference (6 modules)
+- [x] **Typed messages** — TypedMessage + MessageRegistry (46 types, 8 categories)
+- [x] **ConservativeTiebreaker** — deterministic critic vote resolution, wired into orchestrator
+- [x] **Lot protection** — compile-time max lot constant, raised on oversized orders
+- [x] **84 tests passing** — statistics (58) + econometrics (26)
 
 - [ ] **Implement missing kill-switches** (currently only 3 of 11 exist):
   - [ ] Drawdown EWMA throttle/halt

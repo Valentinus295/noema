@@ -190,6 +190,14 @@ class CIODecision(BaseModel):
         default_factory=list,
         description="Agents that disagreed with the decision"
     )
+    tiebreaker_result: str = Field(
+        default="NO_TRADE",
+        description="ConservativeTiebreaker deterministic result: NO_TRADE | REDUCE_SIZE | FULL_SIZE"
+    )
+    tiebreaker_rule: str = Field(
+        default="",
+        description="Which tiebreaking rule was applied"
+    )
 
 
 # ── Execution Schemas ────────────────────────────────────────────────

@@ -88,6 +88,61 @@ class NIMConfig(BaseModel):
     rpm_limit: int = 40
 
 
+# ── Phase 1: Architecture Settings ──────────────────────────────────
+
+class ArchitectureSettings(BaseModel):
+    """Architecture mode configuration for phased deployment."""
+    mode: str = "flat"  # "flat" | "teams" | "actor_critic" | "nexus"
+    teams_enabled: bool = False
+    critic_team_enabled: bool = False
+    parallel_critics: bool = True
+    max_debate_rounds: int = 3
+    communication_protocol: str = "both"  # "typed" | "legacy" | "both"
+
+
+class BrokerSLASettings(BaseModel):
+    """Broker disconnect SLA configuration."""
+    disconnect_detect_seconds: int = 5   # Detect disconnect within 5s
+    reconnect_attempt_seconds: int = 10  # Auto-reconnect attempt within 10s
+    alarm_disconnect_seconds: int = 30   # Kill-switch + Telegram alert after 30s
+    shutdown_seconds: int = 300          # Shutdown ALL trading after 5min
+    max_reconnect_attempts: int = 5
+    reconnect_base_delay: float = 1.0
+    reconnect_max_delay: float = 30.0
+
+
+# ═══════════════════════════════════════════════════
+# COMPILE-TIME CONSTANTS — Cannot be changed without deploy
+# ═══════════════════════════════════════════════════
+
+# Max lot size HARD CAP — physical gate at broker boundary
+# Intentionally defined here AND in broker/lot_protection.py
+# Defense-in-depth: both barriers must agree
+Noema_MAX_LOT_SIZE: float = 1.0
+"""Maximum lot size per trade. COMPILE-TIME CONSTANT.
+
+Cannot be overridden by ANY agent, ANY LLM, ANY config change
+without a code deploy. This is the physical gate before any order
+reaches the broker."""
+
+# Actor agent max consecutive rejections before silenced
+Noema_ACTOR_MAX_REJECTIONS: int = 50
+"""Number of consecutive proposal rejections before an actor agent
+is silenced until human review (Guardian kill-switch #15)."""
+
+# Learning freeze drawdown threshold
+Noema_LEARNING_FREEZE_DRAWDOWN: float = 0.10
+"""Real-time drawdown threshold (10%) at which ALL learning is
+frozen by Guardian kill-switch #16. Checked EVERY TRADE."""
+
+# Max disconnect seconds (BrokerHealthMonitor)
+max_disconnect_seconds: int = 30
+"""Maximum seconds of broker disconnection before kill-switch
+data_stale is triggered by the HealthChecker→Guardian bridge."""
+
+
+# ═══════════════════════════════════════════════════
+
 class Settings(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     portfolio: PortfolioConfig = Field(default_factory=PortfolioConfig)
@@ -95,6 +150,8 @@ class Settings(BaseModel):
     broker: BrokerConfig = Field(default_factory=BrokerConfig)
     trading: TradingConfig = Field(default_factory=TradingConfig)
     nim: NIMConfig = Field(default_factory=NIMConfig)
+    architecture: ArchitectureSettings = Field(default_factory=ArchitectureSettings)
+    broker_sla: BrokerSLASettings = Field(default_factory=BrokerSLASettings)
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///noema.db"
     redis_url: str = ""
@@ -122,6 +179,8 @@ def load_settings(path: Path | None = None) -> Settings:
         confluence=ConfluenceConfig(**data.get("confluence", {})),
         trading=TradingConfig(**data.get("trading", {})),
         nim=NIMConfig(**data.get("nim", {})),
+        architecture=ArchitectureSettings(**data.get("architecture", {})),
+        broker_sla=BrokerSLASettings(**data.get("broker_sla", {})),
         log_level=data.get("log_level", "INFO"),
         database_url=data.get("database_url", "sqlite+aiosqlite:///noema.db"),
         redis_url=data.get("redis_url", ""),

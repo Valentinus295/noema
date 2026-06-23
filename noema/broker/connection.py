@@ -13,13 +13,23 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 import structlog
 
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
+
+# ═══════════════════════════════════════════════════
+# MT5 Disconnect SLA (from Phase 1 settings)
+# ═══════════════════════════════════════════════════
+
+# SLA Constants — align with BrokerSLASettings in core/settings.py
+DISCONNECT_DETECT_SECONDS: float = 5.0     # Detect disconnect within 5s
+RECONNECT_ATTEMPT_SECONDS: float = 10.0    # Auto-reconnect attempt within 10s
+ALARM_DISCONNECT_SECONDS: float = 30.0     # Kill-switch + alert after 30s
+SHUTDOWN_SECONDS: float = 300.0            # Shutdown ALL trading after 5min
 
 # Exponential backoff constants
 RECONNECT_BASE_DELAY = 1.0   # seconds
@@ -29,13 +39,20 @@ RECONNECT_BACKOFF_MULT = 2.0
 
 @dataclass
 class ConnectionState:
-    """MT5 connection state."""
+    """MT5 connection state with SLA tracking."""
     connected: bool = False
     last_connected: datetime | None = None
     last_disconnect: datetime | None = None
     reconnect_count: int = 0
     halt_new_entries: bool = False
     positions_before_disconnect: list[dict] = field(default_factory=list)
+    # ── SLA tracking (Phase 1) ──
+    disconnect_start_time: float = 0.0       # monotonic timestamp when disconnect began
+    total_disconnect_duration: float = 0.0    # cumulative disconnect time this session
+    sla_alarm_fired: bool = False             # 30s alarm sent
+    sla_shutdown_fired: bool = False          # 5min shutdown triggered
+    reconciliation_pending: bool = False      # True after reconnect, before reconciliation
+    reconciliation_done: bool = False         # True after positions verified
 
 
 class MT5ConnectionManager:
@@ -72,11 +89,20 @@ class MT5ConnectionManager:
         self._stale_threshold_sec: float = 5.0
 
     async def on_disconnect(self, broker: Any) -> None:
-        """Handle MT5 disconnect."""
+        """Handle MT5 disconnect with SLA escalation.
+
+        SLA Timeline:
+        - t=0s: Detect disconnect, halt new entries, snapshot positions
+        - t=5s: Reconnect attempts begin (exponential backoff)
+        - t=10s: Aggressive reconnect phase
+        - t=30s: Kill-switch + Telegram alert
+        - t=300s: Complete trading shutdown, wait for human
+        """
         logger.critical("mt5_disconnected")
         self.state.connected = False
         self.state.last_disconnect = datetime.now(timezone.utc)
         self.state.halt_new_entries = True
+        self.state.disconnect_start_time = time.monotonic()
 
         # Snapshot current positions
         try:
@@ -89,10 +115,13 @@ class MT5ConnectionManager:
         except Exception:
             self.state.positions_before_disconnect = []
 
+        disconnect_dur = self.get_disconnect_duration()
         await self._send_alert(
             f"⚠️ MT5 DISCONNECTED!\n"
             f"Open positions at disconnect: {len(self.state.positions_before_disconnect)}\n"
-            f"New entries HALTED."
+            f"New entries HALTED.\n"
+            f"SLA: detect={DISCONNECT_DETECT_SECONDS}s, alarm={ALARM_DISCONNECT_SECONDS}s, "
+            f"shutdown={SHUTDOWN_SECONDS}s"
         )
 
     async def on_reconnect(self, broker: Any) -> bool:
@@ -271,16 +300,54 @@ class MT5ConnectionManager:
 
     def get_disconnect_duration(self) -> float:
         """Get seconds since disconnect began. Returns 0 if not disconnected."""
-        if self._disconnect_start is None:
+        if self.state.disconnect_start_time <= 0:
             return 0.0
-        return time.monotonic() - self._disconnect_start
+        return time.monotonic() - self.state.disconnect_start_time
+
+    def check_disconnect_sla(self) -> Optional[str]:
+        """Check disconnect duration against SLA thresholds.
+
+        Returns the escalation level or None if not disconnected.
+        - "alarm": > 30s disconnected → kill-switch + alert
+        - "shutdown": > 300s (5min) → complete trading shutdown
+        - None: within acceptable bounds
+        """
+        dur = self.get_disconnect_duration()
+        if dur <= 0:
+            return None
+
+        if dur >= SHUTDOWN_SECONDS and not self.state.sla_shutdown_fired:
+            self.state.sla_shutdown_fired = True
+            logger.critical(
+                "mt5_disconnect_shutdown",
+                duration_seconds=round(dur, 0),
+                threshold=SHUTDOWN_SECONDS,
+            )
+            return "shutdown"
+
+        if dur >= ALARM_DISCONNECT_SECONDS and not self.state.sla_alarm_fired:
+            self.state.sla_alarm_fired = True
+            logger.critical(
+                "mt5_disconnect_alarm",
+                duration_seconds=round(dur, 0),
+                threshold=ALARM_DISCONNECT_SECONDS,
+            )
+            return "alarm"
+
+        return None
 
     def set_telegram_callback(self, callback: Any) -> None:
         """Set the Telegram alert callback."""
         self.telegram_callback = callback
 
     def mark_reconnect(self) -> None:
-        """Clear disconnect tracking on reconnect."""
+        """Clear disconnect tracking and SLA flags on reconnect."""
+        disconnect_duration = self.get_disconnect_duration()
+        self.state.disconnect_start_time = 0.0
+        self.state.total_disconnect_duration += disconnect_duration
+        self.state.sla_alarm_fired = False
+        self.state.sla_shutdown_fired = False
+        self.state.reconciliation_pending = True
         self._disconnect_start = None
         self._consecutive_failures = 0
 

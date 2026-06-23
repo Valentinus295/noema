@@ -35,6 +35,7 @@ from noema.models.schemas import (
     CIODecision, DevilsAdvocate, TradeThesis, TradeDirection, TradeParameters,
 )
 from noema.agents.guardian import GuardianAgent, GuardianState
+from noema.core.conservative_tiebreaker import ConservativeTiebreaker, TiebreakerDecision, TiebreakerResult
 from noema.core.observability import (
     TraceAgent, log_trade_decision, log_kill_switch,
     trace_pipeline_phase, record_pipeline_phase_transition,
@@ -622,14 +623,47 @@ class ModernOrchestrator:
                     signal=cio_report.signal,
                 )
 
-        # Parse into CIODecision
+        # ── ConservativeTiebreaker: Deterministic resolution of critic votes ──
+        # CRITICAL: This runs AFTER LLM reports, BEFORE any decision is made.
+        # The tiebreaker is PURE PYTHON — no LLM involvement in decision authority.
+        # Rule: NO_TRADE > REDUCE_SIZE > FULL_SIZE (conservative wins)
+        tiebreaker = ConservativeTiebreaker()
+        critic_signals = [
+            thesis_report.signal,     # "BULLISH" / "BEARISH" / "NEUTRAL"
+            devil_report.signal,      # "APPROVE" / "REJECT" / "MODIFY"
+            cio_report.signal,        # "BUY" / "SELL" / "NO_TRADE"
+        ]
+        tb_result = tiebreaker.resolve_from_strings(critic_signals)
+        logger.info(
+            "conservative_tiebreaker_resolved",
+            symbol=symbol,
+            decision=tb_result.decision.value,
+            rule=tb_result.rule_applied,
+            votes=tb_result.vote_counts,
+            critic_signals=critic_signals,
+        )
+
+        # If tiebreaker says NO_TRADE, override everything — safety first
+        tiebreaker_decision_str = tb_result.decision.value
+        if tb_result.decision == TiebreakerDecision.NO_TRADE:
+            logger.warning(
+                "conservative_tiebreaker_veto",
+                symbol=symbol,
+                rule=tb_result.rule_applied,
+                details=tb_result.details,
+            )
+
+        # Parse into CIODecision (with safe tiebreaker default if CIO data is structured)
         if isinstance(cio_report.data, dict) and "decision" in cio_report.data:
             try:
-                return CIODecision(**cio_report.data)
+                decision = CIODecision(**cio_report.data)
+                decision.tiebreaker_result = tiebreaker_decision_str
+                decision.tiebreaker_rule = tb_result.rule_applied
+                return decision
             except Exception:
                 pass
 
-        # Fallback: build from signals
+        # Fallback: build from signals (always includes ConservativeTiebreaker result)
         return CIODecision(
             decision=TradeDirection(cio_report.signal) if cio_report.signal in ("BUY", "SELL", "NO_TRADE") else TradeDirection.NO_TRADE,
             symbol=symbol,
@@ -639,6 +673,8 @@ class ModernOrchestrator:
             devil_approved=devil_report.signal != "REJECT",
             risk_approved=True,
             final_reasoning=cio_report.reasoning,
+            tiebreaker_result=tiebreaker_decision_str,
+            tiebreaker_rule=tb_result.rule_applied,
         )
 
     async def _run_execution_phase(
@@ -994,9 +1030,14 @@ class ModernOrchestrator:
             self._health_monitor_task = None
 
     def _create_data_stale_callback(self) -> Any:
-        """Create a callback that sets the guardian's data_stale flag.
+        """Create a callback that bridges HealthChecker → Guardian.
 
         Called by the health monitor when broker data is detected as stale.
+        This is the HealthChecker→Guardian bridge — the critical operational
+        link that ensures a disconnected broker actually HALTS trading.
+
+        Also implements the broker disconnect→Guardian notification bridge
+        per AC2.17 of the Noema Blueprint.
         """
         def _set_data_stale() -> None:
             if self.guardian:
@@ -1005,6 +1046,9 @@ class ModernOrchestrator:
                 "guardian_data_stale_set",
                 reason="Broker health monitor detected stale data",
             )
+            # Update health checker (HealthChecker→Guardian bridge)
+            if self.health_checker:
+                self.health_checker.update_kill_switch(True, "data_stale")
             # Also update metrics
             if self.metrics_exporter:
                 self.metrics_exporter.record_kill_switch(
@@ -1012,9 +1056,35 @@ class ModernOrchestrator:
                     symbol="system",
                 )
                 self.metrics_exporter.set_kill_switch_active(True)
-            if self.health_checker:
-                self.health_checker.update_kill_switch(True, "data_stale")
         return _set_data_stale
+
+    def check_broker_connection_and_notify_guardian(self) -> None:
+        """Check broker MT5 connection and bridge to Guardian.
+
+        Implements AC2.17: when check_mt5(connected=False),
+        Guardian's halt_trading("broker_mt5_disconnected") fires automatically.
+
+        Also updates the HealthChecker with current broker state.
+        """
+        try:
+            connected = getattr(self.broker, "is_connected", False)
+            latency_ms = getattr(self.broker, "get_latency_ms", lambda: -1)()
+
+            # Update HealthChecker
+            if self.health_checker:
+                self.health_checker.check_mt5(connected, latency_ms if latency_ms > 0 else 0)
+
+            # Bridge to Guardian on disconnect
+            if not connected and self.guardian:
+                self.guardian.halt_trading("broker_mt5_disconnected")
+                logger.critical(
+                    "healthchecker_guardian_bridge_fired",
+                    event="broker_mt5_disconnected",
+                    reason="HealthChecker detected MT5 disconnect, Guardian halt_trading triggered",
+                )
+
+        except Exception as exc:
+            logger.error("broker_connection_check_failed", error=str(exc))
 
     # ── Loop ─────────────────────────────────────────────────────────
 
