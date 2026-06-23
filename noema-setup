@@ -456,16 +456,20 @@ chmod 600 .env 2>/dev/null && success ".env permissions locked (600 — owner re
 # ── Step 4: Verify Configuration ──────────────────────────────
 section "Step 4: Verifying configuration"
 
-if [ -n "${NIM_API_KEY:-}" ] || grep -q "NIM_API_KEY=nvapi-" .env 2>/dev/null; then
+# NIM key: any non-empty value after =
+if grep -qE "^NIM_API_KEY=.+" .env 2>/dev/null; then
     success "NVIDIA NIM API key configured"
 else
     warn "NVIDIA NIM API key not set — LLM agents will be disabled"
 fi
 
-if grep -q "Noema_MT5_LOGIN=" .env 2>/dev/null && ! grep -q "Noema_MT5_LOGIN=$" .env; then
+# MT5: both login and server must be non-empty
+MT5_LOGIN_OK=$(grep -qE "^Noema_MT5_LOGIN=.+" .env 2>/dev/null && echo 1 || echo 0)
+MT5_SERVER_OK=$(grep -qE "^Noema_MT5_SERVER=.+" .env 2>/dev/null && echo 1 || echo 0)
+if [ "$MT5_LOGIN_OK" = "1" ] && [ "$MT5_SERVER_OK" = "1" ]; then
     success "MT5 credentials configured"
 else
-    warn "MT5 credentials not set — broker connection disabled"
+    warn "MT5 credentials incomplete — broker connection disabled"
 fi
 
 # ── Step 5: Rust Build (if available) ─────────────────────────
@@ -554,7 +558,7 @@ echo ""
 
 # ── Model Health Check ────────────────────────────────────
 if [ -f .env ]; then
-    NIM_KEY=$(grep "^NIM_API_KEY=" .env 2>/dev/null | cut -d= -f2- | tr -d '"')
+    NIM_KEY=$(grep "^NIM_API_KEY=" .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
     if [ -n "$NIM_KEY" ] && [ "$NIM_KEY" != "" ]; then
         echo ""
         echo -e "  ${BOLD}${CYAN}── Testing NVIDIA NIM models ──${NC}"
