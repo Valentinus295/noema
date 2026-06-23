@@ -77,6 +77,9 @@ dependencies = [
 
     # ── Misc ──────────────────────────────────────────────────
     "python-dotenv>=1.0",
+
+    # ── Telegram Integration ───────────────────────────────────
+    "python-telegram-bot>=21.0",   # Async Telegram bot API (job-queue extra for scheduling)
 ]
 
 [project.optional-dependencies]

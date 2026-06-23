@@ -135,13 +135,80 @@ Noema_LEARNING_FREEZE_DRAWDOWN: float = 0.10
 """Real-time drawdown threshold (10%) at which ALL learning is
 frozen by Guardian kill-switch #16. Checked EVERY TRADE."""
 
+# ═══════════════════════════════════════════════════
+# Phase 1.5: Event Calendar & News Blackout Settings
+# ═══════════════════════════════════════════════════
+
+Noema_EVENT_BLACKOUT_MINUTES: int = 30
+"""Total blackout window around high-impact events.
+Default 30 = 15 minutes before + 15 minutes after.
+Overridable via env: Noema_EVENT_BLACKOUT_MINUTES."""
+
+Noema_EVENT_POLL_INTERVAL_SECONDS: int = 300
+"""Interval between economic calendar polls.
+Default 300 = check every 5 minutes.
+Overridable via env: Noema_EVENT_POLL_INTERVAL_SECONDS."""
+
+Noema_EVENT_HIGH_IMPACT_ONLY: bool = True
+"""Only blackout for high-impact (red) events. Medium/low = informational only.
+Set to False to also blackout on medium-impact events.
+Overridable via env: Noema_EVENT_HIGH_IMPACT_ONLY."""
+
+Noema_EVENT_MAX_BLACKOUT_MINUTES: int = 60
+"""Hard timeout for any single blackout — prevents permanent freeze.
+COO condition #1. After this limit, blackout is force-released and
+an alert is logged. Overridable via env: Noema_EVENT_MAX_BLACKOUT_MINUTES."""
+
+Noema_EVENT_CALENDAR_FAILURE_MODE: str = "conservative"
+"""Behavior when calendar API is unavailable.
+'conservative' = assume high-impact events → activate blackout
+'permissive'   = assume no events → proceed normally
+COO condition #2. Overridable via env: Noema_EVENT_CALENDAR_FAILURE_MODE."""
+
+Noema_EVENT_REDUCED_SIZE_PCT: float = 0.50
+"""Position size multiplier during medium-impact events or conservative mode.
+Default 0.50 = trade at 50% of normal size.
+Overridable via env: Noema_EVENT_REDUCED_SIZE_PCT."""
+
+Noema_EVENT_LEAD_MINUTES: int = 15
+"""Minutes before an event to activate blackout.
+Overridable via env: Noema_EVENT_LEAD_MINUTES."""
+
+Noema_EVENT_TRAIL_MINUTES: int = 15
+"""Minutes after an event to deactivate blackout (if vol normalized).
+Overridable via env: Noema_EVENT_TRAIL_MINUTES."""
+
 # Max disconnect seconds (BrokerHealthMonitor)
 max_disconnect_seconds: int = 30
 """Maximum seconds of broker disconnection before kill-switch
 data_stale is triggered by the HealthChecker→Guardian bridge."""
 
+# ═══════════════════════════════════════════════════
+# Telegram Integration Settings
+# ═══════════════════════════════════════════════════
+
+Noema_TELEGRAM_RATE_LIMIT: int = 10
+"""Maximum Telegram messages per minute per chat.
+Default 10/min. Overridable via env: Noema_TELEGRAM_RATE_LIMIT."""
+
+Noema_TELEGRAM_DAILY_SUMMARY_TIME: str = "21:00"
+"""UTC time to send daily summary (HH:MM format).
+Default 21:00 UTC. Overridable via env: Noema_TELEGRAM_DAILY_SUMMARY_TIME."""
+
 
 # ═══════════════════════════════════════════════════
+
+class EventConfig(BaseModel):
+    """Event calendar and news blackout configuration (Phase 1.5)."""
+    blackout_minutes: int = 30         # Total window: 15 before + 15 after
+    lead_minutes: int = 15             # Minutes before event to activate
+    trail_minutes: int = 15            # Minutes after event to deactivate (if normalized)
+    poll_interval_seconds: int = 300   # Check calendar every 5 min
+    high_impact_only: bool = True      # Only blackout for red events
+    max_blackout_minutes: int = 60     # Hard watchdog timeout
+    calendar_failure_mode: str = "conservative"  # "conservative" | "permissive"
+    reduced_size_pct: float = 0.50     # Position size during medium impact / conservative mode
+
 
 class Settings(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
@@ -152,6 +219,7 @@ class Settings(BaseModel):
     nim: NIMConfig = Field(default_factory=NIMConfig)
     architecture: ArchitectureSettings = Field(default_factory=ArchitectureSettings)
     broker_sla: BrokerSLASettings = Field(default_factory=BrokerSLASettings)
+    event: EventConfig = Field(default_factory=EventConfig)
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///noema.db"
     redis_url: str = ""
@@ -181,6 +249,7 @@ def load_settings(path: Path | None = None) -> Settings:
         nim=NIMConfig(**data.get("nim", {})),
         architecture=ArchitectureSettings(**data.get("architecture", {})),
         broker_sla=BrokerSLASettings(**data.get("broker_sla", {})),
+        event=EventConfig(**data.get("event", {})),
         log_level=data.get("log_level", "INFO"),
         database_url=data.get("database_url", "sqlite+aiosqlite:///noema.db"),
         redis_url=data.get("redis_url", ""),
@@ -203,3 +272,19 @@ def load_settings(path: Path | None = None) -> Settings:
 
     if secret := os.getenv("NOEMA_SECRET_KEY"):
         settings.noema_secret_key = secret
+
+    # ── Phase 1.5: Event calendar env overrides ──
+    if blk := os.getenv("Noema_EVENT_BLACKOUT_MINUTES"):
+        settings.event.blackout_minutes = int(blk)
+    if poll := os.getenv("Noema_EVENT_POLL_INTERVAL_SECONDS"):
+        settings.event.poll_interval_seconds = int(poll)
+    if high := os.getenv("Noema_EVENT_HIGH_IMPACT_ONLY"):
+        settings.event.high_impact_only = high.lower() in ("true", "1", "yes")
+    if max_blk := os.getenv("Noema_EVENT_MAX_BLACKOUT_MINUTES"):
+        settings.event.max_blackout_minutes = int(max_blk)
+    if fail_mode := os.getenv("Noema_EVENT_CALENDAR_FAILURE_MODE"):
+        settings.event.calendar_failure_mode = fail_mode
+    if lead := os.getenv("Noema_EVENT_LEAD_MINUTES"):
+        settings.event.lead_minutes = int(lead)
+    if trail := os.getenv("Noema_EVENT_TRAIL_MINUTES"):
+        settings.event.trail_minutes = int(trail)

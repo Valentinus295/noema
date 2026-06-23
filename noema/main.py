@@ -57,7 +57,8 @@ from noema.agents.learning import LearningAgent
 # Self-learning + journaling + Telegram
 from noema.agents.reflector import ReflectorAgent
 from noema.database.journal import TradeJournal
-from noema.agents.telegram_bot import TelegramBot
+from noema.telegram.bot import NoemaTelegramBot
+from noema.telegram.handlers import CommandHandlers
 
 # Guardian Agent — kill-switches wired into pipeline
 from noema.agents.guardian import GuardianAgent, GuardianState
@@ -79,7 +80,8 @@ class CompanionServices:
     def __init__(self) -> None:
         self.reflector = ReflectorAgent()
         self.journal = TradeJournal()
-        self.telegram = TelegramBot()
+        self.telegram: NoemaTelegramBot | None = None
+        self.telegram_handlers: CommandHandlers | None = None
 
     def record_trade(
         self,
@@ -137,102 +139,46 @@ class CompanionServices:
         adapted = self.reflector.get_adapted_params()
         if adapted.get("lessons"):
             logger.info(f"Loaded {len(adapted['lessons'])} lessons from ReflectorAgent")
-        await self.telegram.start()
+        if self.telegram:
+            await self.telegram.start()
 
     async def stop(self) -> None:
         """Stop Telegram bot and close journal."""
-        await self.telegram.stop()
+        if self.telegram:
+            await self.telegram.stop()
         self.journal.close()
 
 
 # ── Telegram Command Handlers (wired to CompanionServices) ──────────
 
 
-def _build_telegram_handlers(services: CompanionServices, broker: Any) -> dict[str, Any]:
-    """Build Telegram command handlers bound to companion services."""
+def _build_telegram_bot(services: CompanionServices, broker: Any, orchestrator: ModernOrchestrator, nim_client: NIMClient, event_analyst: Any = None, settings: Any = None) -> NoemaTelegramBot:
+    """Build the new NoemaTelegramBot with command handlers wired to system data."""
+    handlers = CommandHandlers(
+        broker=broker,
+        guardian=orchestrator.guardian if orchestrator else None,
+        orchestrator=orchestrator,
+        event_analyst=event_analyst,
+        nim_client=nim_client,
+        journal=services.journal,
+        reflector=services.reflector,
+    )
 
-    async def handle_status() -> str:
-        account = broker.get_account_info() if hasattr(broker, "get_account_info") else {}
-        positions = broker.get_open_positions() if hasattr(broker, "get_open_positions") else []
-        adapted = services.reflector.get_adapted_params()
-        lessons = adapted.get("lessons", [])
-        return (
-            "📊 Noema STATUS\n"
-            f"  Balance: ${account.get('balance', 0):,.2f}\n"
-            f"  Equity: ${account.get('equity', 0):,.2f}\n"
-            f"  Open Positions: {len(positions)}\n"
-            f"  Risk Multiplier: {adapted.get('risk_multiplier', 1.0):.2f}\n"
-            f"  Min Confidence: {adapted.get('min_confidence', 0.5):.0%}\n"
-            f"  Lessons Loaded: {len(lessons)}"
-        )
+    bot = NoemaTelegramBot(
+        bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+        chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+        handlers=handlers,
+        nim_client=nim_client,
+    )
 
-    async def handle_positions() -> str:
-        positions = broker.get_open_positions() if hasattr(broker, "get_open_positions") else []
-        if not positions:
-            return "No open positions"
-        lines = ["📋 OPEN POSITIONS"]
-        for p in positions:
-            lines.append(
-                f"  {p.type.upper()} {p.volume} {p.symbol} @ {p.open_price:.5f}"
-                f" | P&L: ${p.pnl:.2f}"
-            )
-        return "\n".join(lines)
+    services.telegram = bot
+    services.telegram_handlers = handlers
 
-    async def handle_flatten() -> str:
-        positions = broker.get_open_positions() if hasattr(broker, "get_open_positions") else []
-        if not positions:
-            return "No positions to flatten"
-        count = 0
-        for p in positions:
-            if hasattr(broker, "close_position") and broker.close_position(p.ticket):
-                count += 1
-        await services.telegram.send_alert(
-            f"🚨 FLATTENED {count}/{len(positions)} positions."
-        )
-        return f"Flattened {count} positions."
+    # Wire handlers into orchestrator for alert push
+    if orchestrator:
+        orchestrator.set_telegram_handlers(handlers)
 
-    async def handle_halt() -> str:
-        await services.telegram.send_alert("⏸️ Noema TRADING HALTED")
-        return "Trading halted."
-
-    async def handle_resume() -> str:
-        await services.telegram.send_alert("▶️ Noema TRADING RESUMED")
-        return "Trading resumed."
-
-    async def handle_balance() -> str:
-        account = broker.get_account_info() if hasattr(broker, "get_account_info") else {}
-        return (
-            f"💰 Balance: ${account.get('balance', 0):,.2f}\n"
-            f"   Equity: ${account.get('equity', 0):,.2f}\n"
-            f"   Free Margin: ${account.get('free_margin', 0):,.2f}"
-        )
-
-    async def handle_lessons() -> str:
-        manual = services.reflector.get_operating_manual()
-        return manual[:3000]
-
-    async def handle_learn() -> str:
-        insights = services.reflector.learn()
-        n_lessons = len(insights.get("lessons", []))
-        bayesian = insights.get("bayesian_edge", {})
-        wr = bayesian.get("posterior_mean", 0)
-        return (
-            f"🧠 Learning cycle complete\n"
-            f"  Active lessons: {n_lessons}\n"
-            f"  Bayesian win rate: {wr:.1%}\n"
-            f"  Trades analyzed: {bayesian.get('total_trades', 0)}"
-        )
-
-    return {
-        "status": handle_status,
-        "positions": handle_positions,
-        "flatten": handle_flatten,
-        "halt": handle_halt,
-        "resume": handle_resume,
-        "balance": handle_balance,
-        "lessons": handle_lessons,
-        "learn": handle_learn,
-    }
+    return bot
 
 
 # ── Orchestrator Factory ────────────────────────────────────────────
@@ -378,6 +324,21 @@ async def create_orchestrator(
     )
     guardian = GuardianAgent(config=settings, guardian_state=guardian_state)
 
+    # ── Event Analyst (Phase 1.5) ───────────────────────────────────
+    event_analyst = None
+    try:
+        from noema.agents.event_analyst import EventAnalyst, EventAnalystState
+        event_state = EventAnalystState()
+        event_analyst = EventAnalyst(
+            config=settings,
+            guardian_agent=guardian,
+            blackout_minutes=settings.event.blackout_minutes,
+            high_impact_only=settings.event.high_impact_only,
+            max_blackout_minutes=settings.event.max_blackout_minutes,
+        )
+    except ImportError:
+        logger.debug("event_analyst_not_available")
+
     # ── Orchestrator ─────────────────────────────────────────────────
     orch = ModernOrchestrator(
         nim_client=nim,
@@ -387,6 +348,7 @@ async def create_orchestrator(
         guardian_state=guardian_state,
         metrics_exporter=metrics_exporter,
         health_checker=health_checker,
+        event_analyst=event_analyst,
     )
 
     # Layer 1: Data agents (deterministic, parallel)
@@ -424,8 +386,17 @@ async def create_orchestrator(
     )
 
     # Wire Telegram handlers
-    handlers = _build_telegram_handlers(services, broker)
-    services.telegram.register_handlers(handlers)
+    bot = _build_telegram_bot(
+        services=services,
+        broker=broker,
+        orchestrator=orch,
+        nim_client=nim,
+        event_analyst=event_analyst,
+        settings=settings,
+    )
+
+    # Wire Telegram bot into orchestrator for alert push
+    orch._telegram_bot = bot
 
     return orch, services
 

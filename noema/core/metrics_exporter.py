@@ -207,6 +207,19 @@ if PROMETHEUS_AVAILABLE:
         "Whether kill-switch is currently active (1=active, 0=inactive)",
     )
 
+    # ── Phase 1.5: News Blackout Metrics ───────────────────────
+    NEWS_BLACKOUT_ACTIVE = Gauge(
+        "noema_news_blackout_active",
+        "News blackout active per pair (1=blackout, 0=trading)",
+        ["pair"],
+    )
+
+    EVENT_IMPACT_TRIGGERED = Counter(
+        "noema_event_impact_triggered_total",
+        "Total event impact triggers",
+        ["event_name", "pair"],
+    )
+
     DAILY_LOSS_LIMIT_PCT = Gauge(
         "noema_daily_loss_limit_remaining_pct",
         "Remaining loss limit for the day (%)",
@@ -476,6 +489,28 @@ class MetricsExporter:
         self._snapshot.sharpe_ratio = sharpe
 
     # ── Kill Switch Tracking ────────────────────────────────────────
+
+    def set_news_blackout_active(self, active: bool, pair: str = "system") -> None:
+        """Set the news blackout Prometheus gauge (Phase 1.5).
+
+        Called by EventAnalyst→Guardian when blackout is activated/deactivated.
+        COO condition #3.
+        """
+        if not self.enabled:
+            return
+        NEWS_BLACKOUT_ACTIVE.labels(pair=pair).set(1 if active else 0)
+
+    def record_event_impact_triggered(
+        self, event_name: str = "", pair: str = "", blocked: bool = True
+    ) -> None:
+        """Record an event impact trigger (Phase 1.5).
+
+        Tracks when a high-impact economic event triggers trading halts.
+        """
+        if not self.enabled:
+            return
+        if blocked and event_name:
+            EVENT_IMPACT_TRIGGERED.labels(event_name=event_name, pair=pair).inc()
 
     def record_kill_switch(self, reason: str, symbol: str = "") -> None:
         """Record a kill-switch activation."""

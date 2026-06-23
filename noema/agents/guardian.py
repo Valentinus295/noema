@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
@@ -24,6 +24,19 @@ import structlog
 from noema.core.modern_agent import DeterministicAgent, AgentReport
 
 logger = structlog.get_logger(__name__)
+
+# ── Prometheus gauge for news blackout (COO condition #3) ──
+try:
+    from prometheus_client import Gauge
+    NOEMA_NEWS_BLACKOUT_ACTIVE = Gauge(
+        "noema_news_blackout_active",
+        "News blackout active status (1=active, 0=inactive)",
+        ["pair"],
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    NOEMA_NEWS_BLACKOUT_ACTIVE = None  # type: ignore[assignment]
 
 
 # ── Legacy state / standalone functions (preserved for backward compat) ──
@@ -314,7 +327,7 @@ class GuardianAgent(DeterministicAgent):
     Provides kill-switch and pre-trade veto protection:
     - Global halt check
     - Daily/weekly loss limit enforcement
-    - News event protection
+    - News event protection (Phase 1.5: automated activation via EventAnalyst)
     - Spread filter
     - Correlation position gate
 
@@ -329,6 +342,9 @@ class GuardianAgent(DeterministicAgent):
         super().__init__(config=config)
         self._guardian_state = guardian_state
         self._halt_lock = threading.Lock()
+        # ── Phase 1.5: Blackout watchdog tracking ──
+        self._blackout_activated_at: dict[str, datetime] = {}  # pair → activation time
+        self._max_blackout_minutes: int = 60  # Hard timeout (COO condition #1)
 
     async def analyze(self, context: dict[str, Any]) -> AgentReport:
         """Run all safety gate checks against the proposed trade context.
@@ -739,3 +755,140 @@ class GuardianAgent(DeterministicAgent):
     def halt_trading(self, reason: str) -> None:
         """Public thread-safe halt — callable from external callers (e.g. health monitor)."""
         self._halt_trading(reason)
+
+    # ── Phase 1.5: News Blackout Activation / Deactivation ──────────
+
+    def activate_news_blackout(
+        self,
+        reason: str,
+        pair: str,
+        until: datetime | None = None,
+    ) -> None:
+        """Activate the news blackout for a pair (deterministic, no LLM).
+
+        Called by EventAnalyst when a high-impact event is within the
+        blackout window [event_time - 15min, event_time + 15min].
+
+        Sets GuardianState.news_blackout = True and logs an audit entry.
+        Implements COO conditions #3 (Prometheus) and #4 (audit logging).
+
+        Args:
+            reason: Human-readable reason (e.g. "NFP — 15 min window")
+            pair: Trading pair affected (e.g. "EURUSD")
+            until: Optional end time for the blackout. If None, uses
+                   GuardianState.news_blackout_until or defaults to 15 min.
+        """
+        state = self._get_state()
+        now = datetime.now(timezone.utc)
+
+        state.news_blackout = True
+        if until:
+            state.news_blackout_until = until
+        else:
+            state.news_blackout_until = now + timedelta(minutes=15)
+
+        # Track activation time for watchdog
+        self._blackout_activated_at[pair] = now
+
+        # ── Audit log (COO condition #4) ────────
+        audit_entry = {
+            "event": "news_blackout_activated",
+            "pair": pair,
+            "reason": reason,
+            "blackout_until": state.news_blackout_until.isoformat(),
+            "activated_at": now.isoformat(),
+            "watchdog_timeout_minutes": self._max_blackout_minutes,
+        }
+        state.audit_log.append(audit_entry)
+
+        logger.warning(
+            "guardian_news_blackout_activated",
+            pair=pair,
+            reason=reason,
+            until=state.news_blackout_until.isoformat(),
+        )
+
+        # ── Prometheus gauge (COO condition #3) ────────
+        if PROMETHEUS_AVAILABLE and NOEMA_NEWS_BLACKOUT_ACTIVE is not None:
+            NOEMA_NEWS_BLACKOUT_ACTIVE.labels(pair=pair).set(1)
+
+    def deactivate_news_blackout(
+        self,
+        reason: str,
+        pair: str,
+    ) -> None:
+        """Deactivate the news blackout for a pair.
+
+        Called by EventAnalyst when:
+        - The event window has passed AND volatility is normalized
+        - OR the 60-minute watchdog timeout has been reached
+
+        Clears GuardianState.news_blackout and logs audit entry.
+        """
+        state = self._get_state()
+        now = datetime.now(timezone.utc)
+
+        state.news_blackout = False
+        state.news_blackout_until = None
+
+        # Calculate blackout duration
+        duration_minutes = 0.0
+        if pair in self._blackout_activated_at:
+            duration_minutes = (
+                (now - self._blackout_activated_at[pair]).total_seconds() / 60
+            )
+            del self._blackout_activated_at[pair]
+
+        # ── Audit log (COO condition #4) ────────
+        audit_entry = {
+            "event": "news_blackout_deactivated",
+            "pair": pair,
+            "reason": reason,
+            "deactivated_at": now.isoformat(),
+            "duration_minutes": round(duration_minutes, 1),
+        }
+        state.audit_log.append(audit_entry)
+
+        logger.info(
+            "guardian_news_blackout_deactivated",
+            pair=pair,
+            reason=reason,
+            duration_minutes=round(duration_minutes, 1),
+        )
+
+        # ── Prometheus gauge (COO condition #3) ────────
+        if PROMETHEUS_AVAILABLE and NOEMA_NEWS_BLACKOUT_ACTIVE is not None:
+            NOEMA_NEWS_BLACKOUT_ACTIVE.labels(pair=pair).set(0)
+
+    def _check_blackout_watchdog(self) -> None:
+        """Check blackout watchdog — force-deactivate if exceeded.
+
+        COO condition #1: Maximum 60-minute blackout.
+        If a blackout has been active > max_blackout_minutes, force-deactivate.
+        """
+        now = datetime.now(timezone.utc)
+        pairs_to_release = []
+
+        for pair, activated_at in list(self._blackout_activated_at.items()):
+            elapsed = (now - activated_at).total_seconds() / 60
+            if elapsed > self._max_blackout_minutes:
+                pairs_to_release.append(pair)
+                logger.error(
+                    "guardian_blackout_watchdog_force_release",
+                    pair=pair,
+                    elapsed_minutes=round(elapsed, 1),
+                    max_minutes=self._max_blackout_minutes,
+                )
+
+        for pair in pairs_to_release:
+            self.deactivate_news_blackout(
+                reason=f"Watchdog timeout ({self._max_blackout_minutes} min max)",
+                pair=pair,
+            )
+
+    def set_max_blackout_minutes(self, minutes: int) -> None:
+        """Configure the maximum blackout duration.
+
+        Called at startup from settings (Noema_EVENT_BLACKOUT_MINUTES).
+        """
+        self._max_blackout_minutes = minutes

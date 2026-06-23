@@ -21,6 +21,7 @@ from noema.agents.management import TradeManagementAgent
 from noema.agents.performance import PerformanceAnalystAgent
 from noema.agents.learning import LearningAgent
 from noema.agents.guardian import GuardianAgent
+from noema.agents.event_analyst import EventAnalyst, EventAnalystState
 
 __all__ = [
     "MacroEconomicAgent", "CurrencyStrengthAgent", "MarketStructureAgent",
@@ -29,4 +30,5 @@ __all__ = [
     "TradeThesisAgent", "DevilsAdvocateAgent", "CIOAgent",
     "RiskManagerAgent", "ExecutionAgent", "TradeManagementAgent",
     "PerformanceAnalystAgent", "LearningAgent", "GuardianAgent",
+    "EventAnalyst", "EventAnalystState",
 ]

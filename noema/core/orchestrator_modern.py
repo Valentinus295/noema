@@ -29,12 +29,15 @@ import structlog
 from noema.core.nim_client import NIMClient, ModelTier
 from noema.core.modern_agent import (
     AgentReport, AgentType, BaseAgent, DeterministicAgent, LLMAgent,
+    HealthStatus,
 )
 from noema.core.types import Bar, Direction, Setup
 from noema.models.schemas import (
     CIODecision, DevilsAdvocate, TradeThesis, TradeDirection, TradeParameters,
 )
 from noema.agents.guardian import GuardianAgent, GuardianState
+from noema.agents.event_analyst import EventAnalyst, EventAnalystState
+from noema.data.event_calendar import EventCalendarDataSource, get_currencies_for_pair
 from noema.core.conservative_tiebreaker import ConservativeTiebreaker, TiebreakerDecision, TiebreakerResult
 from noema.core.observability import (
     TraceAgent, log_trade_decision, log_kill_switch,
@@ -106,6 +109,7 @@ class ModernOrchestrator:
         metrics_exporter: MetricsExporter | None = None,
         health_checker: HealthChecker | None = None,
         telegram_bot: Any = None,
+        event_analyst: EventAnalyst | None = None,
     ):
         self.nim = nim_client
         self.broker = broker
@@ -117,6 +121,9 @@ class ModernOrchestrator:
         self._health_monitor_task: asyncio.Task | None = None
         self._health_monitor: BrokerHealthMonitor | None = None  # type: ignore[valid-type]
 
+        # ── Phase 1.5: Event Analyst ──
+        self.event_analyst = event_analyst
+
         # Agent registry — populated by register_* methods
         self._data_agents: list[BaseAgent] = []
         self._analysis_agents: list[BaseAgent] = []
@@ -127,8 +134,9 @@ class ModernOrchestrator:
         self._execution_agent: BaseAgent | None = None
         self._learning_agent: LLMAgent | None = None
 
-        # Telegram (for disconnect alerts)
+        # Telegram (for disconnect alerts, kill-switch, news blackout)
         self._telegram_bot = telegram_bot
+        self._telegram_handlers = None  # Set after construction if using new bot
 
         # Observability
         self.metrics_exporter = metrics_exporter
@@ -162,8 +170,11 @@ class ModernOrchestrator:
     def register_decision_agents(
         self,
         thesis: LLMAgent,
+    HealthStatus,
         devil: LLMAgent,
+    HealthStatus,
         cio: LLMAgent,
+    HealthStatus,
     ) -> None:
         self._thesis_agent = thesis
         self._devil_agent = devil
@@ -220,12 +231,61 @@ class ModernOrchestrator:
                         self.metrics_exporter.set_kill_switch_active(True)
                     if self.health_checker:
                         self.health_checker.update_kill_switch(True, f"Switches: {switch_ids}")
+                    # ── Telegram: Send kill-switch alert ──
+                    await self._send_telegram_killswitch_alert(triggered)
                     metrics.decision = "HALTED"
                     metrics.error = f"Kill-switch(es) fired: {switch_ids}"
                     metrics.completed_at = time.monotonic()
                     self._total_metrics.append(metrics)
                     self._cycle_count += 1
                     return metrics
+
+            # ── Phase 1.5: Pre-Cycle Event Check ─────────────────────
+            blackout_pairs: set[str] = set()
+            if self.event_analyst:
+                event_report = await self.event_analyst.process({
+                    "symbol": symbol,
+                    "config": self.config,
+                    "current_phase": "pre-flight",
+                })
+                blackout_status = event_report.data.get("blackout_status", "CLEAR")
+                if blackout_status == "ACTIVE":
+                    blackout_details = event_report.data.get("blackout_details", [])
+                    # Check if this specific symbol is blacked out
+                    for detail in blackout_details:
+                        if detail.get("pair", "").upper() == symbol.upper():
+                            blackout_pairs.add(symbol.upper())
+                            logger.warning(
+                                "event_blackout_active",
+                                symbol=symbol,
+                                event=detail.get("event"),
+                                impact=detail.get("impact"),
+                                minutes_remaining=detail.get("minutes_remaining"),
+                            )
+
+                # If this pair is in active blackout, skip the trading cycle
+                if blackout_pairs:
+                    # ── Telegram: Send news blackout alert ──
+                    for detail in blackout_details:
+                        await self._send_telegram_news_blackout_alert(
+                            event_name=detail.get("event", "Unknown"),
+                            pair=detail.get("pair", symbol),
+                            minutes=detail.get("minutes_remaining", 0),
+                        )
+                    metrics.decision = "BLACKOUT"
+                    metrics.error = f"News blackout active for {symbol}"
+                    metrics.completed_at = time.monotonic()
+                    self._logger.info(
+                        "cycle_skipped_blackout",
+                        symbol=symbol,
+                        reason="High-impact news event blackout active — maintaining positions, no new trades",
+                    )
+                    self._total_metrics.append(metrics)
+                    self._cycle_count += 1
+                    return metrics
+
+                # ── Medium impact / conservative mode: reduce sizing ──
+                # (informational only — full blackout is for high impact)
 
             # ── Layer 1: Data Collection (parallel, deterministic) ───
             self._current_phase = "data"
@@ -1082,9 +1142,58 @@ class ModernOrchestrator:
                     event="broker_mt5_disconnected",
                     reason="HealthChecker detected MT5 disconnect, Guardian halt_trading triggered",
                 )
+                # ── Telegram: Send broker disconnect alert ──
+                asyncio.create_task(
+                    self._send_telegram_broker_disconnect_alert("MT5 connection lost")
+                )
 
         except Exception as exc:
             logger.error("broker_connection_check_failed", error=str(exc))
+
+    # ── Telegram Alert Helpers ───────────────────────────────────────
+
+    def set_telegram_handlers(self, handlers: Any) -> None:
+        """Set Telegram command handlers for alert formatting."""
+        self._telegram_handlers = handlers
+
+    async def _send_telegram_alert(self, message: str) -> None:
+        """Send a Telegram alert using the configured bot."""
+        bot = self._telegram_bot
+        if bot and hasattr(bot, 'send_markdown_alert'):
+            await bot.send_markdown_alert(message)
+        elif bot and hasattr(bot, 'send_alert'):
+            await bot.send_alert(message)
+
+    async def _send_telegram_broker_disconnect_alert(self, reason: str, duration: float = 0.0) -> None:
+        """Send broker disconnect alert via Telegram."""
+        if self._telegram_handlers and hasattr(self._telegram_handlers, 'send_broker_disconnect_alert'):
+            msg = await self._telegram_handlers.send_broker_disconnect_alert(reason, duration)
+            await self._send_telegram_alert(msg)
+        elif self._telegram_bot:
+            msg = f"🚨 *BROKER DISCONNECTED*\n\n{reason}\n\n⚠️ Guardian will halt trading after 30s timeout."
+            await self._send_telegram_alert(msg)
+
+    async def _send_telegram_killswitch_alert(self, triggered: list[dict[str, Any]]) -> None:
+        """Send kill-switch trigger alert via Telegram."""
+        for switch in triggered:
+            switch_id = switch.get("id", "unknown")
+            reason = switch.get("reason", switch.get("value", "triggered"))
+            if self._telegram_handlers and hasattr(self._telegram_handlers, 'send_killswitch_alert'):
+                msg = await self._telegram_handlers.send_killswitch_alert(switch_id, reason)
+                await self._send_telegram_alert(msg)
+            elif self._telegram_bot:
+                name = switch_id.replace("_", " ").title()
+                msg = f"🛡 *KILL-SWITCH: {name}*\n\n{reason}\n\n⚠️ Trading halted\."
+                await self._send_telegram_alert(msg)
+
+    async def _send_telegram_news_blackout_alert(self, event_name: str, pair: str, minutes: int = 0) -> None:
+        """Send news blackout alert via Telegram."""
+        if hasattr(self, '_telegram_handlers') and self._telegram_handlers and hasattr(self._telegram_handlers, 'send_news_blackout_alert'):
+            msg = await self._telegram_handlers.send_news_blackout_alert(event_name, pair, minutes)
+            await self._send_telegram_alert(msg)
+        elif self._telegram_bot:
+            msg = f"📰 *News Blackout Active*\n\nEvent: {event_name}\nPair: {pair}\n\n⚠️ New trades suspended\."
+            await self._send_telegram_alert(msg)
 
     # ── Loop ─────────────────────────────────────────────────────────
 
