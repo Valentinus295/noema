@@ -300,3 +300,65 @@ export interface BusMessage {
   content: string;
   timestamp: string;
 }
+
+// ── Chart / SMC Types ────────────────────────────────────────
+
+export type Timeframe = 'M15' | 'H1' | 'H4' | 'D1';
+export type ChartSymbol = 'EURUSD' | 'GBPUSD' | 'USDJPY' | 'AUDUSD' | 'XAUUSD';
+export type SMCDirection = 'bullish' | 'bearish';
+export type StructureKind = 'BOS' | 'CHoCH';
+
+export interface Candle {
+  time: string;  // ISO 8601
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface OrderBlock {
+  time: string;
+  priceHigh: number;
+  priceLow: number;
+  direction: SMCDirection;
+}
+
+export interface FairValueGap {
+  time: string;
+  top: number;
+  bottom: number;
+  direction: SMCDirection;
+  mitigated: boolean;
+}
+
+export interface LiquiditySweep {
+  time: string;
+  level: number;
+  direction: SMCDirection;
+}
+
+export interface StructureEvent {
+  time: string;
+  kind: StructureKind;
+  direction: SMCDirection;
+  price: number;
+}
+
+export interface ActiveSetup {
+  entry: number;
+  sl: number;
+  tp: number;
+  direction: SMCDirection;
+}
+
+export interface ChartData {
+  symbol: string;
+  timeframe: string;
+  candles: Candle[];
+  orderBlocks: OrderBlock[];
+  fvgs: FairValueGap[];
+  sweeps: LiquiditySweep[];
+  structureEvents: StructureEvent[];
+  activeSetup: ActiveSetup | null;
+}

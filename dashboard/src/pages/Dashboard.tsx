@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Area, AreaChart,
 } from 'recharts';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { formatCurrency, formatPercent, formatPips, pnlColor, directionColor, directionBadge, formatDuration, formatRelativeTime } from '@/utils/format';
+import { TradingChart } from '@/components/TradingChart';
 import type { EquityPoint } from '@/types';
 
 function PnLCard({
@@ -143,7 +143,7 @@ export function Dashboard() {
   const openPositions = positions.filter((p) => p.volume > 0);
 
   return (
-    <div className="p-4 space-y-4 animate-fade-in">
+    <div className="p-4 space-y-3 animate-fade-in">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-terminal-bright">
           Trading Dashboard
@@ -158,7 +158,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* P&L Cards */}
+      {/* P&L Cards Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <PnLCard
           label="Daily P&L"
@@ -178,66 +178,20 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Equity Curve */}
-      <div className="card">
-        <div className="card-header">Equity Curve</div>
-        <EquityCurveChart data={metrics?.equityCurve ?? []} />
+      {/* TradingView Chart — Hero Section */}
+      <div className="card p-0 overflow-hidden">
+        <TradingChart className="h-[520px]" />
       </div>
 
-      {/* Bottom row: Positions + Win Rate Gauges + Quick Stats */}
+      {/* Bottom row: Equity Curve + Positions + Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Open Positions */}
+        {/* Equity Curve */}
         <div className="card lg:col-span-2">
-          <div className="card-header">
-            Open Positions ({openPositions.length})
-          </div>
-          {openPositions.length === 0 ? (
-            <div className="text-sm text-terminal-muted text-center py-8">
-              No open positions
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-terminal-muted border-b border-terminal-border">
-                    <th className="text-left py-2 px-2 font-medium">Symbol</th>
-                    <th className="text-left py-2 px-2 font-medium">Dir</th>
-                    <th className="text-right py-2 px-2 font-medium">Entry</th>
-                    <th className="text-right py-2 px-2 font-medium">SL</th>
-                    <th className="text-right py-2 px-2 font-medium">TP</th>
-                    <th className="text-right py-2 px-2 font-medium">P&L</th>
-                    <th className="text-right py-2 px-2 font-medium">Pips</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {openPositions.map((pos) => (
-                    <tr key={pos.ticket} className="border-b border-terminal-border/50 hover:bg-terminal-border/20 transition-colors">
-                      <td className="py-2 px-2 font-mono font-medium text-terminal-bright">
-                        {pos.symbol}
-                      </td>
-                      <td className="py-2 px-2">
-                        <span className={`badge ${directionBadge(pos.direction)}`}>
-                          {pos.direction.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-2 px-2 text-right font-mono">{pos.openPrice.toFixed(5)}</td>
-                      <td className="py-2 px-2 text-right font-mono text-trade-loss">{pos.stopLoss.toFixed(5)}</td>
-                      <td className="py-2 px-2 text-right font-mono text-trade-profit">{pos.takeProfit.toFixed(5)}</td>
-                      <td className={`py-2 px-2 text-right font-mono ${pnlColor(pos.pnl)}`}>
-                        {formatCurrency(pos.pnl)}
-                      </td>
-                      <td className={`py-2 px-2 text-right font-mono ${pnlColor(pos.pnl)}`}>
-                        {formatPips(pos.pnlPips)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div className="card-header">Equity Curve</div>
+          <EquityCurveChart data={metrics?.equityCurve ?? []} />
         </div>
 
-        {/* Win Rate Gauges */}
+        {/* Win Rate Gauge + Quick Stats */}
         <div className="space-y-3">
           <WinRateGauge value={metrics?.winRate ?? 0} label="Overall Win Rate" />
           <div className="card space-y-2">
@@ -272,6 +226,64 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Open Positions Table */}
+      <div className="card">
+        <div className="card-header flex items-center justify-between">
+          <span>Open Positions ({openPositions.length})</span>
+          {openPositions.length > 0 && (
+            <span className="text-status-green text-xs font-normal">● Live</span>
+          )}
+        </div>
+        {openPositions.length === 0 ? (
+          <div className="text-sm text-terminal-muted text-center py-6">
+            No open positions
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-terminal-muted border-b border-terminal-border">
+                  <th className="text-left py-2 px-2 font-medium">Symbol</th>
+                  <th className="text-left py-2 px-2 font-medium">Dir</th>
+                  <th className="text-right py-2 px-2 font-medium">Entry</th>
+                  <th className="text-right py-2 px-2 font-medium">Current</th>
+                  <th className="text-right py-2 px-2 font-medium">SL</th>
+                  <th className="text-right py-2 px-2 font-medium">TP</th>
+                  <th className="text-right py-2 px-2 font-medium">P&L</th>
+                  <th className="text-right py-2 px-2 font-medium">Pips</th>
+                </tr>
+              </thead>
+              <tbody>
+                {openPositions.map((pos) => (
+                  <tr key={pos.ticket} className="border-b border-terminal-border/50 hover:bg-terminal-border/20 transition-colors">
+                    <td className="py-2 px-2 font-mono font-medium text-terminal-bright">
+                      {pos.symbol}
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className={`badge ${directionBadge(pos.direction)}`}>
+                        {pos.direction.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono">{pos.openPrice.toFixed(5)}</td>
+                    <td className={`py-2 px-2 text-right font-mono ${pos.currentPrice > pos.openPrice ? 'text-trade-buy' : 'text-trade-sell'}`}>
+                      {pos.currentPrice.toFixed(5)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-trade-loss">{pos.stopLoss.toFixed(5)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-trade-profit">{pos.takeProfit.toFixed(5)}</td>
+                    <td className={`py-2 px-2 text-right font-mono ${pnlColor(pos.pnl)}`}>
+                      {formatCurrency(pos.pnl)}
+                    </td>
+                    <td className={`py-2 px-2 text-right font-mono ${pnlColor(pos.pnl)}`}>
+                      {formatPips(pos.pnlPips)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

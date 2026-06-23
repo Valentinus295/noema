@@ -506,6 +506,238 @@ def generate_settings() -> dict[str, Any]:
     }
 
 
+# ── Chart Data Generation ───────────────────────────────────────────
+
+SYMBOL_BASES: dict[str, float] = {
+    "EURUSD": 1.08500,
+    "GBPUSD": 1.27100,
+    "USDJPY": 154.500,
+    "AUDUSD": 0.66200,
+    "XAUUSD": 2325.00,
+}
+
+SYMBOL_DIGITS: dict[str, int] = {
+    "EURUSD": 5, "GBPUSD": 5, "USDJPY": 3,
+    "AUDUSD": 5, "XAUUSD": 2,
+}
+
+SYMBOL_PIP: dict[str, float] = {
+    "EURUSD": 0.00010, "GBPUSD": 0.00010, "USDJPY": 0.010,
+    "AUDUSD": 0.00010, "XAUUSD": 0.10,
+}
+
+
+def _round_sym(value: float, symbol: str) -> float:
+    digits = SYMBOL_DIGITS.get(symbol, 5)
+    return round(value, digits)
+
+
+import random
+import math
+
+def generate_chart_data(symbol: str, timeframe: str, bars: int = 200) -> dict[str, Any]:
+    """Generate realistic mock OHLCV candle data with SMC overlays."""
+    random.seed(hash(symbol + timeframe) % (2 ** 31))
+
+    base = SYMBOL_BASES.get(symbol, 1.0)
+    pip = SYMBOL_PIP.get(symbol, 0.0001)
+    digits = SYMBOL_DIGITS.get(symbol, 5)
+
+    # Time delta per candle based on timeframe
+    tf_minutes = {"M15": 15, "H1": 60, "H4": 240, "D1": 1440}.get(timeframe, 60)
+    now = datetime.now(timezone.utc)
+    # Align to timeframe boundary
+    if timeframe == "M15":
+        now = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+    elif timeframe == "H1":
+        now = now.replace(minute=0, second=0, microsecond=0)
+    elif timeframe == "H4":
+        now = now.replace(hour=(now.hour // 4) * 4, minute=0, second=0, microsecond=0)
+    elif timeframe == "D1":
+        now = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Generate candles with random walk + mean reversion + volatility
+    candles: list[dict[str, Any]] = []
+    price = base
+    volatility = pip * (8 if timeframe == "M15" else 12 if timeframe == "H1" else 18 if timeframe == "H4" else 30)
+    trend_bias = 0  # small drift, changes slowly
+
+    for i in range(bars):
+        t = now - timedelta(minutes=(bars - 1 - i) * tf_minutes) if i < bars - 1 else now
+
+        # Slowly varying trend
+        if i % 20 == 0:
+            trend_bias = random.uniform(-1, 1) * pip * 3
+
+        open_p = price
+        close_p = _round_sym(open_p + trend_bias + random.gauss(0, volatility * 0.8), symbol)
+        high_p = _round_sym(max(open_p, close_p) + abs(random.gauss(0, volatility * 0.4)), symbol)
+        low_p = _round_sym(min(open_p, close_p) - abs(random.gauss(0, volatility * 0.4)), symbol)
+        volume = max(10, int(random.gauss(500, 200)))
+
+        candles.append({
+            "time": t.isoformat(),
+            "open": open_p,
+            "high": high_p,
+            "low": low_p,
+            "close": close_p,
+            "volume": volume,
+        })
+        price = close_p
+
+    # ── SMC Overlays (derived from generated candles) ──
+
+    # Order Blocks: last candle of a strong impulsive move
+    order_blocks: list[dict[str, Any]] = []
+    fvgs: list[dict[str, Any]] = []
+    sweeps: list[dict[str, Any]] = []
+    structure_events: list[dict[str, Any]] = []
+
+    # Track swing points for market structure
+    swing_highs: list[dict[str, Any]] = []
+    swing_lows: list[dict[str, Any]] = []
+    lookback = 3
+
+    for i in range(lookback, len(candles) - lookback):
+        c = candles[i]
+        body = abs(c["close"] - c["open"])
+
+        # Detect strong impulsive candles (body > avg * 1.5)
+        avg_body = sum(abs(candles[j]["close"] - candles[j]["open"]) for j in range(max(0, i - 10), i)) / max(1, min(i, 10))
+        is_impulsive = body > avg_body * 1.8
+
+        # Order Block: last bear candle before bullish reversal, or last bull candle before bearish reversal
+        if is_impulsive:
+            direction: str = "bullish" if c["close"] > c["open"] else "bearish"
+            if i < len(candles) - 1:
+                next_c = candles[i + 1]
+                # Reversal detection: bullish candle but next is bearish, or vice versa
+                reversal = (direction == "bullish" and next_c["close"] < next_c["open"]) or \
+                           (direction == "bearish" and next_c["close"] > next_c["open"])
+                if reversal and i % 5 == 0:
+                    order_blocks.append({
+                        "time": c["time"],
+                        "priceHigh": _round_sym(max(c["open"], c["close"]), symbol),
+                        "priceLow": _round_sym(min(c["open"], c["close"]), symbol),
+                        "direction": direction,
+                    })
+
+        # Fair Value Gaps: gap between candle i close and candle i+2 open
+        if i < len(candles) - 2:
+            c0 = candles[i]
+            c2 = candles[i + 2]
+            gap_threshold = pip * 2
+            if c0["close"] > c2["open"] + gap_threshold:
+                # Bearish FVG (gap down)
+                fvgs.append({
+                    "time": candles[i + 1]["time"],
+                    "top": _round_sym(c0["close"], symbol),
+                    "bottom": _round_sym(c2["open"], symbol),
+                    "direction": "bearish",
+                    "mitigated": i % 7 == 0,
+                })
+            elif c2["open"] > c0["close"] + gap_threshold:
+                # Bullish FVG (gap up)
+                fvgs.append({
+                    "time": candles[i + 1]["time"],
+                    "top": _round_sym(c2["open"], symbol),
+                    "bottom": _round_sym(c0["close"], symbol),
+                    "direction": "bullish",
+                    "mitigated": i % 7 == 0,
+                })
+
+    # Swing points detection
+    for i in range(lookback, len(candles) - lookback):
+        c = candles[i]
+        is_swing_high = all(c["high"] > candles[j]["high"] for j in range(i - lookback, i + lookback + 1) if j != i)
+        is_swing_low = all(c["low"] < candles[j]["low"] for j in range(i - lookback, i + lookback + 1) if j != i)
+        if is_swing_high:
+            swing_highs.append({"time": c["time"], "price": c["high"], "index": i})
+        if is_swing_low:
+            swing_lows.append({"time": c["time"], "price": c["low"], "index": i})
+
+    # Structure breaks (BOS) and changes of character (CHoCH)
+    prev_low = None
+    prev_high = None
+    for sh in swing_highs:
+        if prev_high is not None:
+            kind = "BOS" if sh["price"] > prev_high["price"] else "CHoCH"
+            direction = "bullish" if sh["price"] > prev_high["price"] else "bearish"
+            structure_events.append({
+                "time": sh["time"],
+                "kind": kind,
+                "direction": direction,
+                "price": _round_sym(sh["price"], symbol),
+            })
+        prev_high = sh
+
+    prev_low = None
+    for sl in swing_lows:
+        if prev_low is not None:
+            kind = "BOS" if sl["price"] < prev_low["price"] else "CHoCH"
+            direction = "bearish" if sl["price"] < prev_low["price"] else "bullish"
+            structure_events.append({
+                "time": sl["time"],
+                "kind": kind,
+                "direction": direction,
+                "price": _round_sym(sl["price"], symbol),
+            })
+        prev_low = sl
+
+    # Liquidity sweeps: wicks breaking a previous swing level then reversing
+    for i in range(lookback, len(candles) - 1):
+        c = candles[i]
+        # Check if wick broke a prior swing low then closed above it (bullish sweep)
+        for sl in swing_lows:
+            if sl["index"] < i - 2 and c["low"] < sl["price"] and c["close"] > sl["price"]:
+                sweeps.append({
+                    "time": c["time"],
+                    "level": _round_sym(sl["price"], symbol),
+                    "direction": "bullish",
+                })
+                break
+        # Check if wick broke a prior swing high then closed below it (bearish sweep)
+        for sh in swing_highs:
+            if sh["index"] < i - 2 and c["high"] > sh["price"] and c["close"] < sh["price"]:
+                sweeps.append({
+                    "time": c["time"],
+                    "level": _round_sym(sh["price"], symbol),
+                    "direction": "bearish",
+                })
+                break
+
+    # Active setup: mock a trade if we have recent candles
+    last_candle = candles[-1]
+    is_bullish_setup = last_candle["close"] > last_candle["open"]
+    entry = _round_sym(last_candle["close"], symbol)
+    if is_bullish_setup:
+        sl = _round_sym(entry - pip * 15, symbol)
+        tp = _round_sym(entry + pip * 30, symbol)
+    else:
+        sl = _round_sym(entry + pip * 15, symbol)
+        tp = _round_sym(entry - pip * 30, symbol)
+
+    active_setup = {
+        "entry": entry,
+        "sl": sl,
+        "tp": tp,
+        "direction": "bullish" if is_bullish_setup else "bearish",
+    }
+
+    random.seed()  # reset seed
+
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "candles": candles,
+        "orderBlocks": order_blocks[-15:],  # limit to most recent
+        "fvgs": [f for f in fvgs[-20:] if not f["mitigated"]],
+        "sweeps": sweeps[-10:],
+        "structureEvents": structure_events[-12:],
+        "activeSetup": active_setup if len(order_blocks) > 0 else None,
+    }
+
+
 # ── REST Endpoints ──────────────────────────────────────────────────
 
 @app.get("/api/status")
@@ -561,6 +793,36 @@ async def api_killswitches():
 async def api_settings():
     """Get current settings."""
     return generate_settings()
+
+
+@app.get("/api/chart/{symbol}")
+async def api_chart_data(
+    symbol: str,
+    timeframe: str = Query("H1"),
+    bars: int = Query(200, ge=10, le=1000),
+):
+    """Get candlestick chart data with SMC overlays.
+
+    Returns OHLCV candles plus Smart Money Concepts annotations:
+    order blocks, fair value gaps, liquidity sweeps,
+    structure events (BOS/CHoCH), and active trade setup.
+    """
+    valid_tfs = {"M15", "H1", "H4", "D1"}
+    if timeframe not in valid_tfs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe '{timeframe}'. Valid: {', '.join(sorted(valid_tfs))}",
+        )
+
+    valid_symbols = set(SYMBOL_BASES.keys())
+    sym_upper = symbol.upper()
+    if sym_upper not in valid_symbols:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid symbol '{symbol}'. Valid: {', '.join(sorted(valid_symbols))}",
+        )
+
+    return generate_chart_data(sym_upper, timeframe, bars)
 
 
 # ── WebSocket Endpoint ──────────────────────────────────────────────
