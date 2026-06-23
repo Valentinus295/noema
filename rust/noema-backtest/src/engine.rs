@@ -11,6 +11,7 @@ use chrono::Utc;
 use std::collections::HashMap;
 
 /// Core backtesting engine.
+#[allow(dead_code)]
 pub struct BacktestEngine {
     /// Initial account balance
     initial_balance: f64,
