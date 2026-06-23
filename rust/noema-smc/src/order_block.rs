@@ -168,6 +168,7 @@ impl From<&OrderBlock> for PyOrderBlock {
 /// Python function for OB detection.
 #[cfg(feature = "python-bindings")]
 #[pyo3::pyfunction]
+#[pyo3(signature = (opens, highs, lows, closes, min_impulse=None))]
 pub fn py_detect_obs(
     opens: Vec<f64>,
     highs: Vec<f64>,

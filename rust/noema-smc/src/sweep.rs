@@ -99,6 +99,7 @@ pub struct PyLiquiditySweep {
 /// Python function for sweep detection.
 #[cfg(feature = "python-bindings")]
 #[pyo3::pyfunction]
+#[pyo3(signature = (highs, lows, closes, swing_highs, swing_lows, lookback=None))]
 pub fn py_detect_sweeps(
     highs: Vec<f64>,
     lows: Vec<f64>,

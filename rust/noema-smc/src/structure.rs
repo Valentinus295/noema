@@ -49,8 +49,8 @@ enum Trend {
 /// Uses close prices to determine breaks of swing levels.
 pub fn detect_structure(
     closes: &[f64],
-    highs: &[f64],
-    lows: &[f64],
+    _highs: &[f64],
+    _lows: &[f64],
     swing_highs: &[(usize, f64)],
     swing_lows: &[(usize, f64)],
 ) -> Vec<StructureEvent> {

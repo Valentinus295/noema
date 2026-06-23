@@ -112,6 +112,7 @@ pub struct PySwingDetector {
 #[pyo3::pymethods]
 impl PySwingDetector {
     #[new]
+    #[pyo3(signature = (lookback=None))]
     fn new(lookback: Option<usize>) -> Self {
         Self { lookback: lookback.unwrap_or(3) }
     }

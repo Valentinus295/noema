@@ -5,15 +5,15 @@ use chrono::{DateTime, Utc};
 /// Events that flow through the backtesting engine.
 pub enum Event {
     /// A new market tick
-    Tick(crate::TickEvent),
+    Tick(TickEvent),
     /// An order has been placed
-    OrderPlaced(crate::OrderEvent),
+    OrderPlaced(OrderEvent),
     /// An order has been filled
-    OrderFilled(crate::OrderEvent),
+    OrderFilled(OrderEvent),
     /// A position has been opened
-    PositionOpened(crate::PositionEvent),
+    PositionOpened(PositionEvent),
     /// A position has been closed
-    PositionClosed(crate::PositionEvent),
+    PositionClosed(PositionEvent),
 }
 
 pub struct TickEvent {

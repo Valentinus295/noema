@@ -129,6 +129,7 @@ impl OhlcvAggregator {
 /// Python-facing OHLCV aggregator.
 #[cfg(feature = "python-bindings")]
 #[pyo3::pyclass(name = "OhlcvAggregator")]
+#[allow(dead_code)]
 pub struct PyOhlcvAggregator {
     inner: OhlcvAggregator,
 }

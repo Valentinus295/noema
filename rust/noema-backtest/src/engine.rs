@@ -2,12 +2,12 @@
 //!
 //! Drives the simulation: processes ticks → generates signals → matches orders → tracks P&L.
 
-use crate::events::{Event, EventQueue};
+use crate::events::EventQueue;
 use crate::order::{Order, OrderSide, OrderStatus, OrderType};
 use crate::position::{Position, PositionSide};
 use crate::metrics::Metrics;
 use noema_data::tick::Tick;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use std::collections::HashMap;
 
 /// Core backtesting engine.
@@ -130,7 +130,7 @@ impl BacktestEngine {
 
     /// Check if pending orders should be triggered by current tick.
     fn check_pending_orders(&mut self, tick: &Tick) {
-        let mid = tick.mid();
+        let _mid = tick.mid();
         let mut triggered = Vec::new();
 
         for (i, order) in self.pending_orders.iter().enumerate() {
@@ -298,6 +298,7 @@ pub struct PyBacktestEngine {
 #[pyo3::pymethods]
 impl PyBacktestEngine {
     #[new]
+    #[pyo3(signature = (initial_balance=None, spread=None, commission=None, contract_size=None))]
     fn new(
         initial_balance: Option<f64>,
         spread: Option<f64>,
@@ -322,8 +323,8 @@ impl PyBacktestEngine {
 
     fn report(&self) -> pyo3::PyResult<HashMap<String, pyo3::PyObject>> {
         // Returns report as a Python dict
-        let r = self.inner.report();
-        let mut map = HashMap::new();
+        let _r = self.inner.report();
+        let map = HashMap::new();
         // Simplified — in production, return proper dict
         Ok(map)
     }
