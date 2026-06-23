@@ -368,14 +368,12 @@ prompt_choice \
     "→ DEBUG for development, INFO for production"
 
 # ── Finalize .env ─────────────────────────────────────────────
-cat >> .env << 'FOOTER'
+cat >> .env << FOOTER
 
-# ── Docker Compose Environment ──────────────────────────────
-POSTGRES_USER=noema
-POSTGRES_PASSWORD=noema
-POSTGRES_DB=noema
-REDIS_PASSWORD=noema
-GRAFANA_ADMIN_PASSWORD=noema
+# ── Docker Compose Environment (auto-generated secure passwords) ──
+POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))" 2>/dev/null || echo "generate-with-python3")
+REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))" 2>/dev/null || echo "generate-with-python3")
+GRAFANA_ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(18))" 2>/dev/null || echo "generate-with-python3")
 FOOTER
 
 success ".env file created with $(wc -l < .env) lines"
@@ -474,52 +472,18 @@ echo -e "${GREEN}${BOLD}╔═════════════════�
 echo -e "${GREEN}${BOLD}║   🧠  Noema Setup Complete!               ║${NC}"
 echo -e "${GREEN}${BOLD}╚═══════════════════════════════════════════╝${NC}"
 echo ""
+
 echo -e "  ${BOLD}Credentials stored in:${NC} ${CYAN}.env${NC} ${GREEN}(gitignored, chmod 600)${NC}"
 echo ""
-echo -e "  ${BOLD}Quick Start:${NC}"
+echo -e "  ${YELLOW}⚠️  Start with paper trading. Validate on demo 2+ weeks before live.${NC}"
 echo ""
-echo -e "  ${CYAN}# Activate environment${NC}"
-echo -e "  source .venv/bin/activate"
-echo ""
-echo -e "  ${BOLD}${CYAN}── Platform: ${OS} ──${NC}"
-echo ""
-if [ "$NEED_WINE" = "true" ]; then
-    echo -e "  ${CYAN}# Start MT5 under Wine${NC}"
-    echo -e "  python -m noema.scripts.start_mt5"
+
+# ── Launch immediately ────────────────────────────────────
+read -r -p "  🚀 Launch paper trading now? [y/N]: " LAUNCH
+if [ "${LAUNCH,,}" = "y" ] || [ "${LAUNCH,,}" = "yes" ]; then
     echo ""
+    echo -e "  ${GREEN}Starting paper trading on EURUSD...${NC}"
+    echo ""
+    source .venv/bin/activate 2>/dev/null || true
+    exec python -m noema.main --mode paper --pair EURUSD
 fi
-echo -e "  ${BOLD}${CYAN}── Trading (auto-detects platform) ──${NC}"
-echo ""
-echo -e "  ${CYAN}# Paper trading (safe — works everywhere)${NC}"
-echo -e "  python -m noema.main --mode paper --pair EURUSD"
-echo ""
-if [ "$NEED_WINE" = "true" ] || echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
-    echo -e "  ${CYAN}# Live trading (auto-detects MT5)${NC}"
-    echo -e "  python -m noema.main --mode live"
-else
-    echo -e "  ${YELLOW}# Live trading unavailable on ${OS}${NC}"
-fi
-echo ""
-echo -e "  ${BOLD}${CYAN}── Dashboard (watch trades live) ──${NC}"
-echo ""
-echo -e "  ${CYAN}# Terminal 1: Start the backend${NC}"
-echo -e "  cd dashboard && python server/api.py"
-echo ""
-echo -e "  ${CYAN}# Terminal 2: Start the frontend${NC}"
-echo -e "  cd dashboard && npm run dev"
-echo ""
-echo -e "  ${CYAN}# Open http://localhost:3000 in your browser${NC}"
-echo ""
-echo -e "  ${CYAN}# Run tests${NC}"
-echo -e "  bash noema/scripts/run_tests.sh coverage"
-echo ""
-echo -e "  ${BOLD}Documentation:${NC}"
-echo -e "  README.md               — Overview & strategy"
-echo -e "  docs/ARCHITECTURE.md     — System design"
-echo -e "  docs/SECURITY.md         — Security model"
-echo -e "  docs/CREDENTIAL_ROTATION.md — Token management"
-echo -e "  docs/ROADMAP.md          — Future plans"
-echo ""
-echo -e "  ${YELLOW}⚠️  Remember: Start with paper trading. Never go live without${NC}"
-echo -e "  ${YELLOW}    validating on demo for at least 2 weeks.${NC}"
-echo ""

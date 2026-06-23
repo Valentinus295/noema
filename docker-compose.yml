@@ -27,7 +27,9 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-noema}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-noema_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+      POSTGRES_USER: ${POSTGRES_USER:-noema}
+      POSTGRES_DB: ${POSTGRES_DB:-noema}
       POSTGRES_DB: ${POSTGRES_DB:-noema}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
@@ -62,11 +64,11 @@ services:
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
       --appendonly yes
-      --requirepass ${REDIS_PASSWORD:-noema_redis_dev}
+      --requirepass ${REDIS_PASSWORD:?Required}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-noema_redis_dev}", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:?Required}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -119,7 +121,7 @@ services:
       - "${GRAFANA_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Required}
       GF_INSTALL_PLUGINS: ""
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/"
