@@ -636,17 +636,26 @@ class NIMClient:
                     latency_ms=round(elapsed_ms, 1),
                 )
 
-                # Try fallback model if primary fails after 2+ attempts
-                if attempt >= 2 and tier_cfg and tier_cfg.fallback and effective_model == tier_cfg.primary:
-                    logger.info(
-                        "model_fallback",
-                        agent=agent_name,
-                        from_model=effective_model,
-                        to_model=tier_cfg.fallback,
-                        attempt=attempt + 1,
-                    )
-                    effective_model = tier_cfg.fallback
-                    self._total_fallback_used += 1
+                # Try next fallback model if primary fails
+                if attempt >= 2 and tier_cfg:
+                    fallbacks = getattr(tier_cfg, 'fallbacks', []) or []
+                    # Find current model's position in [primary] + fallbacks list
+                    model_chain = ([tier_cfg.primary] if tier_cfg.primary else []) + list(fallbacks)
+                    try:
+                        current_idx = model_chain.index(effective_model)
+                    except ValueError:
+                        current_idx = -1
+                    next_idx = current_idx + 1
+                    if next_idx < len(model_chain):
+                        effective_model = model_chain[next_idx]
+                        self._total_fallback_used += 1
+                        logger.info(
+                            "model_fallback",
+                            agent=agent_name,
+                            to_model=effective_model,
+                            fallback_level=next_idx,
+                            attempt=attempt + 1,
+                        )
 
                 # Exponential backoff with jitter
                 if attempt < self.max_retries:

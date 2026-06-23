@@ -521,6 +521,31 @@ echo ""
 echo -e "  ${YELLOW}⚠️  Start with paper trading. Validate on demo 2+ weeks before live.${NC}"
 echo ""
 
+# ── Model Health Check ────────────────────────────────────
+if [ -f .env ]; then
+    NIM_KEY=$(grep "^NIM_API_KEY=" .env 2>/dev/null | cut -d= -f2- | tr -d '"')
+    if [ -n "$NIM_KEY" ] && [ "$NIM_KEY" != "" ]; then
+        echo ""
+        echo -e "  ${BOLD}${CYAN}── Testing NVIDIA NIM models ──${NC}"
+        echo ""
+        
+        for model in "minimaxai/minimax-m3" "minimaxai/minimax-m2.7" "moonshotai/kimi-k2.6" "nvidia/llama-3.1-nemotron-ultra-253b-v1" "deepseek-ai/deepseek-v4-flash" "meta/llama-4-maverick-17b-128e-instruct"; do
+            resp=$(curl -s --max-time 12 \
+                "https://integrate.api.nvidia.com/v1/chat/completions" \
+                -H "Authorization: Bearer $NIM_KEY" \
+                -H "Content-Type: application/json" \
+                -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}],\"max_tokens\":3}" 2>&1)
+            if echo "$resp" | grep -q '"choices"'; then
+                echo -e "  ${GREEN}✓${NC} $model — responding"
+            else
+                err=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',{}).get('message','unknown')[:60])" 2>/dev/null || echo "timeout")
+                echo -e "  ${RED}✗${NC} $model — $err"
+            fi
+        done
+        echo ""
+    fi
+fi
+
 # ── MT5 Connection Guide ──────────────────────────────────
 echo ""
 echo -e "  ${BOLD}${CYAN}── How Noema connects to MT5 ──${NC}"

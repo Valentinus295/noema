@@ -358,12 +358,17 @@ class ModelTierConfig:
     """A single model tier configuration loaded from YAML."""
     name: str
     primary: str | None
-    fallback: str
-    temperature: float
-    max_tokens: int
-    latency_budget_s: float
-    rpm_limit: int
+    fallbacks: list[str] = field(default_factory=list)  # Multiple fallbacks, tried in order
+    temperature: float = 0.1
+    max_tokens: int = 1024
+    latency_budget_s: float = 10.0
+    rpm_limit: int = 20
     description: str = ""
+
+    @property
+    def fallback(self) -> str:
+        """Backward compat: first fallback."""
+        return self.fallbacks[0] if self.fallbacks else ""
 
 
 @dataclass
@@ -432,13 +437,18 @@ def _default_config() -> dict[str, Any]:
 
 
 def parse_tiers(raw: dict[str, Any]) -> dict[str, ModelTierConfig]:
-    """Parse raw tier config into typed ModelTierConfig objects."""
+    """Parse raw tier config into typed ModelTierConfig objects.
+    Handles both 'fallback' (single str, legacy) and 'fallbacks' (list).
+    """
     tiers = {}
     for name, data in raw.get("tiers", {}).items():
+        fb = data.get("fallback") or data.get("fallbacks", [])
+        if isinstance(fb, str):
+            fb = [fb] if fb else []
         tiers[name] = ModelTierConfig(
             name=name,
             primary=data.get("primary"),
-            fallback=data.get("fallback", ""),
+            fallbacks=fb,
             temperature=data.get("temperature", 0.1),
             max_tokens=data.get("max_tokens", 1024),
             latency_budget_s=data.get("latency_budget_s", 5.0),
