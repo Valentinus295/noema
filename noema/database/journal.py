@@ -30,7 +30,10 @@ class TradeJournal:
 
     def __init__(self, db_path: str = "data/journal.duckdb") -> None:
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as exc:
+            logger.error("journal_dir_create_failed", path=str(self.db_path.parent), error=str(exc))
         self._conn = None
         self._init_db()
 

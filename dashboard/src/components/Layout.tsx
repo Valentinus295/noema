@@ -3,7 +3,7 @@ import { Sidebar } from './Sidebar';
 import { useDashboard } from '@/contexts/DashboardContext';
 
 export function Layout() {
-  const { state } = useDashboard();
+  const { state, dispatch } = useDashboard();
 
   return (
     <div className="flex min-h-screen bg-terminal-bg">
@@ -14,7 +14,7 @@ export function Layout() {
           <div className="mx-4 mt-3 px-4 py-2 bg-red-500/10 border border-red-500/25 rounded-lg flex items-center justify-between animate-fade-in">
             <span className="text-sm text-red-400 font-mono">{state.error}</span>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => dispatch({ type: 'CLEAR_ERROR' })}
               className="text-xs text-red-400 hover:text-red-300 ml-4"
             >
               Dismiss

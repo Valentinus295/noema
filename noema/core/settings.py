@@ -98,6 +98,7 @@ class Settings(BaseModel):
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///noema.db"
     redis_url: str = ""
+    noema_secret_key: str = ""  # Used for JWT signing, session tokens, dashboard auth
     symbols_whitelist: list[str] = Field(
         default_factory=lambda: ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD"]
     )
@@ -141,4 +142,5 @@ def load_settings(path: Path | None = None) -> Settings:
     if redis_url := os.getenv("REDIS_URL"):
         settings.redis_url = redis_url
 
-    return settings
+    if secret := os.getenv("NOEMA_SECRET_KEY"):
+        settings.noema_secret_key = secret

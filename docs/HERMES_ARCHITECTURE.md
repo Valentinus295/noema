@@ -242,10 +242,8 @@ class AgentRegistry:
     @classmethod
     def discover(cls) -> dict[str, AgentDef]:
         """Auto-discover all registered agents. Import triggers registration."""
-        import noema.agents.trend
         import noema.agents.structure
-        import noema.agents.fundamental
-        import noema.agents.confluence
+        import noema.agents.macro
         import noema.agents.risk
         import noema.agents.execution
         import noema.agents.guardian
