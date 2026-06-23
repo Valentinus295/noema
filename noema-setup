@@ -476,9 +476,9 @@ fi
 section "Step 5: Rust workspace"
 
 if command -v cargo &> /dev/null; then
-    info "Building Rust crates..."
+    info "Building Rust crates (first build ~2-5 min)..."
     cd rust
-    if cargo build --release 2>&1 | tail -3; then
+    if cargo build --release 2>&1; then
         success "Rust crates compiled (noema-data, noema-backtest, noema-smc)"
     else
         warn "Rust build had issues — Python fallbacks will be used"
