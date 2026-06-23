@@ -114,7 +114,8 @@ prompt_secret() {
     if [ -n "$help" ]; then
         echo -e "  ${CYAN}${help}${NC}"
     fi
-    read -r -p "  Enter value [${default}]: " value < /dev/tty
+    read -r -s -p "  Enter value [hidden]: " value < /dev/tty
+    echo ""
     value="${value:-$default}"
     echo "${var}=${value}" >> .env
     success "${var} configured"
