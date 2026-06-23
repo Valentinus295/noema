@@ -529,9 +529,54 @@ if [ -f noema/scripts/start_mt5.py ] && command -v wine &> /dev/null; then
     if python3 -m noema.scripts.start_mt5 2>/dev/null; then
         success "MT5 connection test passed"
     else
-        warn "MT5 not currently running — start it with: python -m noema.scripts.start_mt5"
+        warn "MT5 not currently running — start it with: python -m noema.scripts.mt5_daemon start"
     fi
 fi
+
+# ── Step 8.5: MetaTrader 5 Auto-Start ─────────────────────────
+section "Step 8.5: MetaTrader 5 Auto-Start"
+
+echo ""
+echo -e "  ${YELLOW}${BOLD}Would you like MT5 to start automatically in the background?${NC}"
+echo -e "    ${CYAN}1${NC}) Yes — headless (no window, recommended)"
+echo -e "    ${CYAN}2${NC}) Yes — with window (for monitoring)"
+echo -e "    ${CYAN}3${NC}) No — I'll start MT5 manually"
+read -r -p "  Choose [1-3]: " MT5_AUTO_CHOICE < /dev/tty
+
+case "$MT5_AUTO_CHOICE" in
+    1)
+        HEADLESS=true
+        echo "Noema_MT5_HEADLESS=true" >> .env
+        echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+        echo ""
+        echo -e "  → Starting MT5 headless..."
+        source .venv/bin/activate 2>/dev/null || true
+        if python3 -m noema.scripts.mt5_daemon start 2>/dev/null; then
+            success "MT5 running in background — Noema will auto-connect"
+        else
+            warn "MT5 headless start had issues — check xvfb-run: sudo apt install xvfb"
+            info "You can start MT5 manually later: python -m noema.scripts.mt5_daemon start"
+        fi
+        ;;
+    2)
+        echo "Noema_MT5_HEADLESS=false" >> .env
+        echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+        echo ""
+        echo -e "  → Starting MT5 with window..."
+        source .venv/bin/activate 2>/dev/null || true
+        if python3 -m noema.scripts.mt5_daemon start --visible 2>/dev/null; then
+            success "MT5 started with window — Noema will connect when ready"
+        else
+            warn "MT5 window start had issues — start manually with wine"
+        fi
+        ;;
+    3)
+        echo "Noema_MT5_HEADLESS=false" >> .env
+        echo ""
+        info "MT5 manual start. Run before trading:"
+        info "  python -m noema.scripts.mt5_daemon start"
+        ;;
+esac
 
 # ── Step 9: Quick validation ──────────────────────────────────
 section "Step 9: Quick validation"
@@ -609,19 +654,24 @@ echo ""
 if [ "$NEED_WINE" = "true" ]; then
     echo -e "  ${BOLD}Daily workflow:${NC}"
     echo ""
-    echo -e "  ${CYAN}# 1. Start MT5 (must be running before trading)${NC}"
-    echo -e "  wine \"$WINE_MT5_PATH\""
-    echo -e "  # Login, keep it open"
-    echo ""
-    echo -e "  ${CYAN}# 2. Run Noema${NC}"
+    echo -e "  ${CYAN}# 1. Start MT5 headless (auto-login, no window needed)${NC}"
     echo -e "  source .venv/bin/activate"
-    echo -e "  python -m noema.main --mode live"
+    echo -e "  python -m noema.scripts.mt5_daemon start"
+    echo ""
+    echo -e "  ${CYAN}# 2. Run Noema (auto-connects to MT5)${NC}"
+    echo -e "  python -m noema.main --mt5-auto"
     echo ""
     echo -e "  ${CYAN}# 3. Watch dashboard${NC}"
     echo -e "  cd dashboard && npm run dev  →  http://localhost:3000"
     echo ""
-    echo -e "  ${GREEN}Noema connects to MT5 automatically via mt5linux bridge.${NC}"
-    echo -e "  ${GREEN}Platform auto-detection handles everything.${NC}"
+    echo -e "  ${GREEN}With headless mode, Noema auto-starts and connects to MT5.${NC}"
+    echo -e "  ${GREEN}Set Noema_MT5_HEADLESS=true in .env for fully automatic startup.${NC}"
+    echo ""
+    echo -e "  ${YELLOW}Install as a systemd service for auto-start on boot:${NC}"
+    echo -e "  mkdir -p ~/.config/systemd/user"
+    echo -e "  cp config/noema-mt5.service ~/.config/systemd/user/"
+    echo -e "  systemctl --user daemon-reload"
+    echo -e "  systemctl --user enable --now noema-mt5.service"
 fi
 
 # ── Launch Dashboard ──────────────────────────────────────

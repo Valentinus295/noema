@@ -23,6 +23,7 @@ Requirements:
 from __future__ import annotations
 
 import os
+import socket
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,7 @@ logger = structlog.get_logger(__name__)
 DEFAULT_WINE_MT5_PATH = Path.home() / ".wine/drive_c/Program Files/MetaTrader 5/terminal64.exe"
 DEFAULT_RPYC_PORT = 18812
 DEFAULT_RPYC_HOST = "127.0.0.1"
+DEFAULT_STARTUP_WAIT = 120  # seconds
 
 TIMEFRAME_MAP = {
     "M1": "TIMEFRAME_M1", "M5": "TIMEFRAME_M5", "M15": "TIMEFRAME_M15",
@@ -68,12 +70,79 @@ class MT5LinuxBroker(BrokerBase):
 
     # ── Connection ─────────────────────────────────────────────
 
+    def wait_for_ready(
+        self,
+        host: str | None = None,
+        port: int | None = None,
+        timeout: float = DEFAULT_STARTUP_WAIT,
+        poll_interval: float = 2.0,
+    ) -> bool:
+        """Wait for the MT5 RPyC bridge to become available.
+
+        Call this BEFORE initialize() to ensure MT5 is running.
+        Useful when Noema is starting and MT5 may still be booting.
+
+        Args:
+            host: RPyC host (default: 127.0.0.1)
+            port: RPyC port (default: 18812)
+            timeout: Maximum wait time in seconds
+            poll_interval: Time between polls in seconds
+
+        Returns:
+            True if MT5 bridge became ready, False if timeout expired
+        """
+        h = host or self._host
+        p = port or self._port
+
+        logger.info(
+            "mt5_waiting_for_ready",
+            host=h, port=p, timeout=timeout,
+        )
+
+        start = time.monotonic()
+        while (time.monotonic() - start) < timeout:
+            if self._port_is_open(h, p, timeout=1.0):
+                elapsed = time.monotonic() - start
+                logger.info(
+                    "mt5_bridge_ready",
+                    host=h, port=p,
+                    elapsed_seconds=round(elapsed, 1),
+                )
+                return True
+            time.sleep(poll_interval)
+
+        logger.error(
+            "mt5_bridge_timeout",
+            host=h, port=p, timeout=timeout,
+            hint="MT5 daemon not running. Start with: python -m noema.scripts.mt5_daemon start",
+        )
+        return False
+
     def initialize(self) -> bool:
         """Connect to MT5 via mt5linux RPyC bridge.
 
         The MT5 terminal must already be running under Wine.
-        Use scripts/start_mt5.py to launch it, or start it manually.
+        Use python -m noema.scripts.mt5_daemon start to launch it headless,
+        or start it manually with wine.
+
+        If wait_for_ready() was called first, MT5 should already be listening.
+        If not, we check the port and give a helpful error.
         """
+        # Quick pre-check: is the RPyC port open?
+        if not self._port_is_open(self._host, self._port, timeout=2.0):
+            logger.error(
+                "mt5_not_running",
+                host=self._host,
+                port=self._port,
+                hint=(
+                    "MT5 daemon not running. Start it with:\n"
+                    "  python -m noema.scripts.mt5_daemon start\n"
+                    "Or if MT5 is still booting, wait with:\n"
+                    "  python -m noema.scripts.mt5_daemon wait"
+                ),
+            )
+            return False
+
         try:
             from mt5linux import MetaTrader5
             self._mt5 = MetaTrader5(
@@ -97,14 +166,22 @@ class MT5LinuxBroker(BrokerBase):
                     "mt5_init_failed",
                     host=self._host,
                     port=self._port,
-                    hint="Make sure MT5 is running under Wine and the RPyC bridge is active",
+                    hint=(
+                        "MT5 is running but RPyC initialization failed.\n"
+                        "Check: 1) mt5linux server active in MT5? 2) Credentials correct?\n"
+                        "Try restarting MT5: python -m noema.scripts.mt5_daemon restart"
+                    ),
                 )
                 return False
         except Exception as exc:
             logger.error(
                 "mt5_connection_failed",
                 error=str(exc),
-                hint="Check: 1) Wine installed? 2) MT5 running? 3) mt5linux server active in MT5?",
+                hint=(
+                    "Check: 1) Wine installed? 2) MT5 running?\n"
+                    "  3) mt5linux server active in MT5?\n"
+                    "  Start MT5: python -m noema.scripts.mt5_daemon start"
+                ),
             )
             return False
 
@@ -470,6 +547,18 @@ class MT5LinuxBroker(BrokerBase):
             return OrderResult(success=False, error=str(exc))
 
     # ── Helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _port_is_open(host: str, port: int, timeout: float = 1.0) -> bool:
+        """Check if a TCP port is accepting connections."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
 
     def _tf_map(self, timeframe: str) -> int:
         """Map string timeframe to MT5 constant."""

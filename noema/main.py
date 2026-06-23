@@ -238,6 +238,69 @@ def _build_telegram_handlers(services: CompanionServices, broker: Any) -> dict[s
 # ── Orchestrator Factory ────────────────────────────────────────────
 
 
+async def ensure_mt5_running(settings: Settings) -> bool:
+    """Ensure MT5 is running before the orchestrator starts.
+
+    If Noema_MT5_HEADLESS=true in .env, auto-start MT5 headless.
+    Otherwise, warn the user that MT5 needs to be started manually.
+
+    Returns:
+        True if MT5 is ready (or not needed), False if MT5 is required but unavailable
+    """
+    from noema.scripts.mt5_daemon import (
+        is_mt5_running,
+        start_mt5,
+        wait_for_mt5_ready,
+        generate_config,
+        load_credentials_from_env,
+    )
+
+    status = is_mt5_running()
+
+    if status["rpyc_listening"]:
+        logger.info("mt5_already_running")
+        return True
+
+    headless = os.getenv("Noema_MT5_HEADLESS", "true").lower() in ("true", "1", "yes")
+    startup_wait = int(os.getenv("Noema_MT5_STARTUP_WAIT", "120"))
+
+    if headless:
+        logger.info("mt5_auto_starting", headless=True)
+        try:
+            login, password, server = load_credentials_from_env()
+            config_path = generate_config(login, password, server)
+            process = start_mt5(config_path=config_path, headless=True)
+            if process is None:
+                logger.error("mt5_auto_start_failed")
+                return False
+            logger.info("mt5_process_started", pid=process.pid)
+            ready = wait_for_mt5_ready(timeout=startup_wait)
+            if ready:
+                logger.info("mt5_auto_start_ready")
+                return True
+            else:
+                logger.error(
+                    "mt5_auto_start_timeout",
+                    timeout=startup_wait,
+                    hint="python -m noema.scripts.mt5_daemon start",
+                )
+                return False
+        except ValueError as exc:
+            logger.error("mt5_credentials_missing", error=str(exc))
+            return False
+    else:
+        logger.warning(
+            "mt5_not_running_headless_disabled",
+            hint=(
+                "MT5 is not running. Start it manually with:\n"
+                "  python -m noema.scripts.mt5_daemon start\n"
+                "Or set Noema_MT5_HEADLESS=true in .env for auto-start."
+            ),
+        )
+        # Don't block — MT5 might be started externally
+        return True
+
+
 async def create_orchestrator(
     settings: Settings,
 ) -> tuple[ModernOrchestrator, CompanionServices]:
@@ -378,6 +441,14 @@ async def main() -> None:
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--interval", type=float, default=60.0, help="Cycle interval in seconds")
     parser.add_argument("--dry-run", action="store_true", help="Use paper broker")
+    parser.add_argument(
+        "--mt5-auto", action="store_true",
+        help="Auto-start MT5 headless daemon before trading",
+    )
+    parser.add_argument(
+        "--no-mt5-auto", action="store_true",
+        help="Skip MT5 auto-start even if configured",
+    )
     args = parser.parse_args()
 
     # Load config
@@ -392,6 +463,21 @@ async def main() -> None:
     )
 
     logger.info("noema_starting", version="2.0.0", pairs=settings.trading.pairs)
+
+    # ── MT5 Lifecycle ───────────────────────────────────────────────
+    if args.mt5_auto:
+        os.environ["Noema_MT5_HEADLESS"] = "true"
+    elif args.no_mt5_auto:
+        os.environ["Noema_MT5_HEADLESS"] = "false"
+
+    if not args.dry_run:
+        mt5_ready = await ensure_mt5_running(settings)
+        if not mt5_ready:
+            logger.error(
+                "mt5_unavailable_exiting",
+                hint="Start MT5 manually: python -m noema.scripts.mt5_daemon start",
+            )
+            sys.exit(1)
 
     # ── Initialize Observability ────────────────────────────────────
     init_observability(
