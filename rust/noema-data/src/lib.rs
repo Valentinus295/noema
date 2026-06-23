@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 #[pymodule]
 fn noema_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<tick::PyTick>()?;
-    m.add_class::<aggregation::OhlcvAggregator>()?;
+    m.add_class::<aggregation::PyOhlcvAggregator>()?;
     m.add_function(wrap_pyfunction!(ingestion::py_load_csv_ticks, m)?)?;
     Ok(())
 }

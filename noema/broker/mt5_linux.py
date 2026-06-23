@@ -14,6 +14,13 @@ Architecture:
         ▼
     Wine ─► MT5 Terminal ─► Broker Server
 
+Resilience features (v2.0):
+    - MT5ConnectionManager: reconnect + reconciliation on disconnect
+    - BrokerHealthMonitor: background async health pings (5s interval)
+    - Stale-data protection: blocks orders if last tick > 5s old
+    - RPyC latency instrumentation: Prometheus gauge + WARNING threshold
+    - Telegram disconnect/reconnect alerts
+
 Requirements:
     - Wine with MT5 installed
     - mt5linux package (pip install mt5linux)
@@ -22,16 +29,18 @@ Requirements:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import structlog
 
 from noema.broker.base import BrokerBase, OrderResult, Position
+from noema.broker.connection import MT5ConnectionManager
 
 logger = structlog.get_logger(__name__)
 
@@ -41,11 +50,213 @@ DEFAULT_RPYC_PORT = 18812
 DEFAULT_RPYC_HOST = "127.0.0.1"
 DEFAULT_STARTUP_WAIT = 120  # seconds
 
+# Health monitoring
+HEALTH_PING_INTERVAL = 5.0         # seconds
+STALE_DATA_THRESHOLD = 5.0         # seconds — blocks orders if last tick older
+RPYC_LATENCY_WARNING = 50.0        # ms — log WARNING if RPyC latency exceeds
+DISCONNECT_ALERT_DELAY = 15.0      # seconds — send Telegram alert after this long
+
 TIMEFRAME_MAP = {
     "M1": "TIMEFRAME_M1", "M5": "TIMEFRAME_M5", "M15": "TIMEFRAME_M15",
     "M30": "TIMEFRAME_M30", "H1": "TIMEFRAME_H1", "H4": "TIMEFRAME_H4",
     "D1": "TIMEFRAME_D1", "W1": "TIMEFRAME_W1", "MN1": "TIMEFRAME_MN1",
 }
+
+
+# ── Prometheus gauge for RPyC latency (lazy import to avoid hard dependency) ──
+
+def _init_rpyc_latency_gauge():
+    """Initialize the Prometheus gauge for RPyC latency."""
+    try:
+        from prometheus_client import Gauge
+        return Gauge(
+            "noema_broker_rpyc_latency_ms",
+            "RPyC bridge round-trip latency in milliseconds",
+        )
+    except ImportError:
+        return None
+
+
+_rpyc_latency_gauge: Any = None
+
+
+def _record_rpyc_latency(latency_ms: float) -> None:
+    """Record RPyC latency to Prometheus gauge if available."""
+    global _rpyc_latency_gauge
+    if _rpyc_latency_gauge is None:
+        _rpyc_latency_gauge = _init_rpyc_latency_gauge()
+    if _rpyc_latency_gauge is not None:
+        _rpyc_latency_gauge.set(latency_ms)
+
+
+# ── BrokerHealthMonitor ─────────────────────────────────────────────
+
+
+class BrokerHealthMonitor:
+    """Background async health monitor for MT5 broker connectivity.
+
+    Runs as an asyncio.Task in the orchestrator (NOT blocking the pipeline).
+
+    Responsibilities:
+    - Ping MT5 every HEALTH_PING_INTERVAL seconds (port check + RPyC call)
+    - Track tick freshness via last_tick_timestamp
+    - Trigger reconnect via MT5ConnectionManager on disconnect
+    - Send Telegram alerts on prolonged disconnects (>15s)
+    - Track consecutive failures and set critical/guardian flags
+    - Expose RPyC latency as Prometheus gauge
+    """
+
+    def __init__(
+        self,
+        broker: "MT5LinuxBroker",
+        connection_manager: MT5ConnectionManager,
+        telegram_callback: Callable | None = None,
+        guardian_data_stale_callback: Callable[[], None] | None = None,
+        subscribed_pairs: list[str] | None = None,
+    ) -> None:
+        self._broker = broker
+        self._conn_mgr = connection_manager
+        self._telegram = telegram_callback
+        self._guardian_cb = guardian_data_stale_callback
+        self._subscribed_pairs = subscribed_pairs or []
+        self._running = False
+        self._task: asyncio.Task | None = None
+        self._disconnect_alerted = False
+
+    async def start(self) -> asyncio.Task:
+        """Start the health monitor as a background task. Returns the task."""
+        self._running = True
+        self._task = asyncio.create_task(self._run())
+        logger.info("broker_health_monitor_started", interval=HEALTH_PING_INTERVAL)
+        return self._task
+
+    async def stop(self) -> None:
+        """Stop the health monitor gracefully."""
+        self._running = False
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("broker_health_monitor_stopped")
+
+    async def _run(self) -> None:
+        """Main loop: ping MT5, check ticks, handle disconnect."""
+        while self._running:
+            try:
+                await self._health_check()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("health_monitor_error", error=str(exc))
+            await asyncio.sleep(HEALTH_PING_INTERVAL)
+
+    async def _health_check(self) -> None:
+        """Single health-check cycle."""
+        broker = self._broker
+
+        # 1. Check RPyC port is open (lightweight TCP check)
+        port_open = broker._port_is_open(broker._host, broker._port, timeout=1.0)
+
+        # 2. Check tick freshness (did we get a tick recently?)
+        tick_fresh = not self._conn_mgr.is_data_stale()
+
+        # 3. If broker not connected or port closed, we're disconnected
+        is_connected = broker.is_connected and port_open
+
+        if not is_connected:
+            # Record start of disconnect for 15-second alert threshold
+            self._conn_mgr.mark_disconnect_start()
+
+            # Check if disconnect has exceeded alert threshold
+            disconnect_dur = self._conn_mgr.get_disconnect_duration()
+            if disconnect_dur >= DISCONNECT_ALERT_DELAY and not self._disconnect_alerted:
+                self._disconnect_alerted = True
+                await self._send_alert(
+                    f"⚠️ MT5 DISCONNECTED for {disconnect_dur:.0f}s!\n"
+                    f"Port open: {port_open}\n"
+                    f"Tick fresh: {tick_fresh}\n"
+                    f"Attempting reconnect…"
+                )
+
+            # Record failure and check threshold
+            self._conn_mgr.record_failure()
+
+            if self._conn_mgr.is_critical:
+                logger.critical(
+                    "broker_health_critical",
+                    consecutive_failures=self._conn_mgr.consecutive_failures,
+                )
+                # Trigger guardian data_stale flag
+                if self._guardian_cb:
+                    try:
+                        self._guardian_cb()
+                    except Exception:
+                        pass
+
+            # Attempt reconnect via connection manager
+            await self._conn_mgr.on_disconnect(broker)
+
+            # Try to reconnect with exponential backoff
+            reconnected = await self._conn_mgr.wait_for_reconnect(
+                lambda: broker._reconnect_attempt()
+            )
+            if reconnected:
+                await self._conn_mgr.on_reconnect(broker)
+                self._conn_mgr.mark_reconnect()
+                self._disconnect_alerted = False
+                await self._send_alert("✅ MT5 RECONNECTED")
+            return
+
+        # Connected — record success
+        self._conn_mgr.record_success()
+
+        # If we were previously disconnected and now reconnected, send alert
+        if self._disconnect_alerted:
+            self._disconnect_alerted = False
+            await self._send_alert("✅ MT5 RECONNECTED")
+
+        # 4. Measure RPyC latency
+        latency_ms = broker.get_latency_ms()
+        _record_rpyc_latency(latency_ms)
+        if latency_ms > RPYC_LATENCY_WARNING:
+            logger.warning(
+                "rpyc_latency_high",
+                latency_ms=round(latency_ms, 1),
+                threshold_ms=RPYC_LATENCY_WARNING,
+            )
+
+        # 5. Poll ticks for subscribed pairs (updates last_tick_timestamp)
+        for symbol in self._subscribed_pairs:
+            try:
+                tick = broker.get_tick(symbol)
+                if tick:
+                    self._conn_mgr.update_tick_timestamp()
+            except Exception:
+                pass  # Individual tick failures are non-fatal
+
+        # 6. Check stale-data and trigger guardian if needed
+        if tick_fresh is False and self._conn_mgr.is_data_stale():
+            if self._guardian_cb:
+                try:
+                    self._guardian_cb()
+                except Exception:
+                    pass
+
+    async def _send_alert(self, message: str) -> None:
+        """Send Telegram alert if callback is configured."""
+        if self._telegram:
+            try:
+                if asyncio.iscoroutinefunction(self._telegram):
+                    await self._telegram(message)
+                else:
+                    self._telegram(message)
+            except Exception:
+                pass
+
+
+# ── MT5LinuxBroker ──────────────────────────────────────────────────
 
 
 class MT5LinuxBroker(BrokerBase):
@@ -54,19 +265,32 @@ class MT5LinuxBroker(BrokerBase):
     This broker wraps mt5linux to provide the same interface as the
     Windows-native MT5Broker, but works on Pop!_OS and Ubuntu.
 
+    Resilience (v2.0):
+        Connection manager handles disconnect/reconnect/reconciliation.
+        Health monitor runs in background (async task, never blocks pipeline).
+        Stale-data protection blocks orders on stale prices.
+
     Usage:
         broker = MT5LinuxBroker(config)
         broker.initialize()
         broker.place_order(symbol="EURUSD", ...)
     """
 
-    def __init__(self, config: Any = None) -> None:
+    def __init__(
+        self,
+        config: Any = None,
+        telegram_callback: Callable | None = None,
+    ) -> None:
         super().__init__(config)
         self._mt5 = None          # mt5linux client
         self._rpyc_process = None
         self._connected = False
         self._host = DEFAULT_RPYC_HOST
         self._port = DEFAULT_RPYC_PORT
+        self._data_stale = False
+        self._conn_mgr: MT5ConnectionManager | None = None
+        self._health_monitor: BrokerHealthMonitor | None = None
+        self._telegram_callback = telegram_callback
 
     # ── Connection ─────────────────────────────────────────────
 
@@ -127,6 +351,8 @@ class MT5LinuxBroker(BrokerBase):
 
         If wait_for_ready() was called first, MT5 should already be listening.
         If not, we check the port and give a helpful error.
+
+        Wires the MT5ConnectionManager for disconnect/reconnect/reconciliation.
         """
         # Quick pre-check: is the RPyC port open?
         if not self._port_is_open(self._host, self._port, timeout=2.0):
@@ -202,20 +428,158 @@ class MT5LinuxBroker(BrokerBase):
             logger.warning("mt5_account_info_failed")
 
         self._connected = True
+
+        # ── Wire MT5ConnectionManager ─────────────────────────────
+        self._conn_mgr = MT5ConnectionManager(
+            telegram_callback=self._telegram_callback,
+        )
+        self._conn_mgr.state.connected = True
+        self._conn_mgr.state.last_connected = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        )
+        self._conn_mgr.update_tick_timestamp()
+        logger.info("mt5_connection_manager_wired")
+
         return True
 
     def shutdown(self) -> None:
         """Disconnect from MT5."""
+        # Stop health monitor first
+        if self._health_monitor:
+            # Fire-and-forget stop; orchestrator handles cancellation.
+            pass
         if self._mt5 and self._connected:
             try:
                 self._mt5.shutdown()
             except Exception:
                 pass
         self._connected = False
+        if self._conn_mgr:
+            self._conn_mgr.state.connected = False
+
+    async def async_shutdown(self) -> None:
+        """Async shutdown: stop health monitor, then disconnect."""
+        if self._health_monitor:
+            await self._health_monitor.stop()
+        self.shutdown()
+
+    # ── Health monitor lifecycle ────────────────────────────────────
+
+    def start_health_monitor(
+        self,
+        subscribed_pairs: list[str] | None = None,
+        guardian_data_stale_callback: Callable[[], None] | None = None,
+    ) -> BrokerHealthMonitor | None:
+        """Start the background health monitor task.
+
+        Called by the orchestrator AFTER initialize().
+        Returns the monitor instance or None if already running.
+        """
+        if self._health_monitor is not None:
+            logger.warning("health_monitor_already_running")
+            return self._health_monitor
+        if self._conn_mgr is None:
+            logger.error("health_monitor_no_connection_manager")
+            return None
+
+        self._health_monitor = BrokerHealthMonitor(
+            broker=self,
+            connection_manager=self._conn_mgr,
+            telegram_callback=self._telegram_callback,
+            guardian_data_stale_callback=guardian_data_stale_callback,
+            subscribed_pairs=subscribed_pairs,
+        )
+        # Fire-and-forget: task is stored on the monitor
+        self._health_monitor._task_h = asyncio.ensure_future(
+            self._health_monitor._run()
+        )
+        self._health_monitor._running = True
+        logger.info(
+            "broker_health_monitor_started",
+            interval=HEALTH_PING_INTERVAL,
+            pairs=subscribed_pairs,
+        )
+        return self._health_monitor
+
+    async def stop_health_monitor(self) -> None:
+        """Stop the health monitor gracefully."""
+        if self._health_monitor:
+            await self._health_monitor.stop()
+            self._health_monitor = None
+
+    @property
+    def connection_manager(self) -> MT5ConnectionManager | None:
+        return self._conn_mgr
+
+    @property
+    def data_stale(self) -> bool:
+        """True if last tick is stale (>5s old or never received)."""
+        if self._conn_mgr:
+            return self._conn_mgr.is_data_stale()
+        return self._data_stale
 
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    def can_trade(self) -> bool:
+        """Check if trading is allowed (connected + data not stale)."""
+        if not self._connected:
+            return False
+        if self._conn_mgr and not self._conn_mgr.can_trade():
+            return False
+        if self.data_stale:
+            return False
+        return True
+
+    def _reconnect_attempt(self) -> bool:
+        """Attempt to re-establish the RPyC connection.
+
+        Used as the check function for MT5ConnectionManager.wait_for_reconnect().
+        Returns True if reconnect succeeds.
+        """
+        if self._mt5 is None:
+            try:
+                from mt5linux import MetaTrader5
+                self._mt5 = MetaTrader5(host=self._host, port=self._port)
+            except Exception:
+                return False
+        try:
+            if self._mt5.initialize():
+                self._connected = True
+                if self._conn_mgr:
+                    self._conn_mgr.state.connected = True
+                    self._conn_mgr.update_tick_timestamp()
+                return True
+        except Exception as exc:
+            logger.warning("reconnect_attempt_failed", error=str(exc))
+        return False
+
+    def get_latency_ms(self) -> float:
+        """Measure RPyC bridge round-trip latency.
+
+        Makes a lightweight RPyC call (symbol_info_tick on a known symbol)
+        and times the round-trip. Logs WARNING if >50ms.
+
+        Returns:
+            Latency in milliseconds, or -1 if measurement fails.
+        """
+        if not self._connected or self._mt5 is None:
+            return -1.0
+        try:
+            start = time.monotonic()
+            _ = self._mt5.symbol_info_tick("EURUSD")
+            elapsed = (time.monotonic() - start) * 1000
+            if elapsed > RPYC_LATENCY_WARNING:
+                logger.warning(
+                    "rpyc_latency_high",
+                    latency_ms=round(elapsed, 1),
+                    threshold_ms=RPYC_LATENCY_WARNING,
+                )
+            return elapsed
+        except Exception as exc:
+            logger.warning("rpyc_latency_measure_failed", error=str(exc))
+            return -1.0
 
     # ── Account ─────────────────────────────────────────────────
 
@@ -270,13 +634,16 @@ class MT5LinuxBroker(BrokerBase):
             return None
 
     def get_tick(self, symbol: str) -> dict | None:
-        """Get current tick."""
+        """Get current tick. Updates last_tick_timestamp for stale-data protection."""
         if not self._connected:
             return None
         try:
             tick = self._mt5.symbol_info_tick(symbol)
             if tick is None:
                 return None
+            # ── Update tick timestamp for stale-data protection ──
+            if self._conn_mgr:
+                self._conn_mgr.update_tick_timestamp()
             return {
                 "bid": float(tick.bid),
                 "ask": float(tick.ask),
@@ -352,6 +719,19 @@ class MT5LinuxBroker(BrokerBase):
         """
         if not self._connected:
             return OrderResult(success=False, error="Not connected to MT5")
+
+        # ── Stale-data protection: block order if last tick is > 5s old ──
+        if self.data_stale:
+            stale_msg = "Data is stale — last tick > 5s old. Order blocked."
+            logger.warning(
+                "order_blocked_stale_data",
+                symbol=symbol,
+                last_tick_age_secs=round(
+                    time.monotonic() - (self._conn_mgr._last_tick_timestamp if self._conn_mgr else 0), 1
+                ),
+            )
+            self._data_stale = True
+            return OrderResult(success=False, error=stale_msg)
 
         # Ensure symbol is available
         if not self.ensure_symbol(symbol):

@@ -10,13 +10,21 @@ Handles:
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
+
+# Exponential backoff constants
+RECONNECT_BASE_DELAY = 1.0   # seconds
+RECONNECT_MAX_DELAY = 30.0   # seconds
+RECONNECT_BACKOFF_MULT = 2.0
 
 
 @dataclass
@@ -49,12 +57,19 @@ class MT5ConnectionManager:
         max_reconnect_attempts: int = 5,
         reconnect_delay: float = 5.0,
         telegram_callback: Any = None,
+        data_stale_callback: Callable[[], None] | None = None,
     ) -> None:
         self.state = ConnectionState()
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
         self.telegram_callback = telegram_callback
+        self.data_stale_callback = data_stale_callback
         self._lock = asyncio.Lock()
+        self._consecutive_failures = 0
+        self._max_consecutive_failures = 3
+        self._disconnect_start: float | None = None
+        self._last_tick_timestamp: float = 0.0
+        self._stale_threshold_sec: float = 5.0
 
     async def on_disconnect(self, broker: Any) -> None:
         """Handle MT5 disconnect."""
@@ -138,6 +153,125 @@ class MT5ConnectionManager:
     def can_trade(self) -> bool:
         """Check if trading is allowed."""
         return self.state.connected and not self.state.halt_new_entries
+
+    def update_tick_timestamp(self) -> None:
+        """Called by broker on every fresh tick to mark data freshness."""
+        self._last_tick_timestamp = time.monotonic()
+
+    def is_data_stale(self) -> bool:
+        """Check if last tick is older than the stale threshold.
+
+        This is the #1 protection against trading on stale prices.
+        """
+        if self._last_tick_timestamp == 0:
+            return True  # No tick ever received
+        return (time.monotonic() - self._last_tick_timestamp) > self._stale_threshold_sec
+
+    async def retry_wrapper(
+        self,
+        fn: Callable[..., T],
+        *args: Any,
+        **kwargs: Any,
+    ) -> T | None:
+        """Execute a broker call with retry on disconnect.
+
+        If the call fails due to connection loss, attempts reconnect and retries.
+        Returns None if all retries exhausted.
+        """
+        async with self._lock:
+            for attempt in range(self.max_reconnect_attempts):
+                try:
+                    return fn(*args, **kwargs)
+                except (ConnectionError, OSError, EOFError) as exc:
+                    logger.warning(
+                        "broker_call_failed",
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                    if attempt < self.max_reconnect_attempts - 1:
+                        delay = min(
+                            RECONNECT_BASE_DELAY * (RECONNECT_BACKOFF_MULT ** attempt),
+                            RECONNECT_MAX_DELAY,
+                        )
+                        logger.info("retry_backoff", delay=delay, attempt=attempt + 1)
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(
+                            "broker_call_all_retries_exhausted",
+                            attempts=self.max_reconnect_attempts,
+                        )
+                        return None
+            return None
+
+    async def wait_for_reconnect(self, check_fn: Callable[[], bool]) -> bool:
+        """Wait for reconnection with exponential backoff.
+
+        Args:
+            check_fn: Async callable that returns True when connected.
+
+        Returns:
+            True if reconnected, False if max attempts exhausted.
+        """
+        for attempt in range(self.max_reconnect_attempts):
+            delay = min(
+                RECONNECT_BASE_DELAY * (RECONNECT_BACKOFF_MULT ** attempt),
+                RECONNECT_MAX_DELAY,
+            )
+            logger.info("reconnect_attempt", attempt=attempt + 1, delay=delay)
+            await asyncio.sleep(delay)
+            try:
+                if check_fn():
+                    logger.info("reconnect_check_passed")
+                    return True
+            except Exception as exc:
+                logger.warning("reconnect_check_failed", error=str(exc))
+        logger.error("reconnect_max_attempts_exhausted")
+        return False
+
+    def record_failure(self) -> None:
+        """Record a health-check failure. Triggers CRITICAL log at threshold."""
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self._max_consecutive_failures:
+            logger.critical(
+                "broker_health_critical",
+                consecutive_failures=self._consecutive_failures,
+                threshold=self._max_consecutive_failures,
+            )
+            # Notify stale-data callback if provided
+            if self.data_stale_callback:
+                try:
+                    self.data_stale_callback()
+                except Exception:
+                    pass
+
+    def record_success(self) -> None:
+        """Reset consecutive failure counter on successful health check."""
+        self._consecutive_failures = 0
+
+    @property
+    def consecutive_failures(self) -> int:
+        return self._consecutive_failures
+
+    @property
+    def is_critical(self) -> bool:
+        """True when consecutive failures exceed threshold."""
+        return self._consecutive_failures >= self._max_consecutive_failures
+
+    def mark_disconnect_start(self) -> None:
+        """Record when disconnect began (for 15-second alert threshold)."""
+        if self._disconnect_start is None:
+            self._disconnect_start = time.monotonic()
+
+    def get_disconnect_duration(self) -> float:
+        """Get seconds since disconnect began. Returns 0 if not disconnected."""
+        if self._disconnect_start is None:
+            return 0.0
+        return time.monotonic() - self._disconnect_start
+
+    def mark_reconnect(self) -> None:
+        """Clear disconnect tracking on reconnect."""
+        self._disconnect_start = None
+        self._consecutive_failures = 0
 
     async def _send_alert(self, message: str) -> None:
         if self.telegram_callback:
