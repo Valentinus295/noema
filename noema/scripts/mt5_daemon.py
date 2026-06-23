@@ -164,7 +164,7 @@ def start_mt5(
         logger.error(
             "mt5_not_found",
             path=str(exe),
-            hint="Install MT5 via Wine first: wine ~/Downloads/fxpesa5setup.exe",
+            hint="Install MT5 via Wine first (download from your broker's website)",
         )
         return None
 

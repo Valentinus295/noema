@@ -43,6 +43,22 @@ from noema.core.observability import (
 from noema.core.metrics_exporter import MetricsExporter
 from noema.decision import RiskContext, build_risk_context_from_account
 
+# ── Broker health monitor (optional import) ──
+try:
+    from noema.broker.mt5_linux import (
+        BrokerHealthAdapter,
+        MT5LinuxBroker,
+        BrokerHealthMonitor,
+        HEALTH_PING_INTERVAL,
+    )
+    _MT5_LINUX_AVAILABLE = True
+except ImportError:
+    _MT5_LINUX_AVAILABLE = False
+    BrokerHealthAdapter = None  # type: ignore[misc]
+    BrokerHealthMonitor = None  # type: ignore[misc]
+    MT5LinuxBroker = None  # type: ignore[misc]
+    HEALTH_PING_INTERVAL = 5.0
+
 logger = structlog.get_logger(__name__)
 
 
@@ -88,6 +104,7 @@ class ModernOrchestrator:
         guardian_state: GuardianState | None = None,
         metrics_exporter: MetricsExporter | None = None,
         health_checker: HealthChecker | None = None,
+        telegram_bot: Any = None,
     ):
         self.nim = nim_client
         self.broker = broker
@@ -96,6 +113,8 @@ class ModernOrchestrator:
         self.guardian_state = guardian_state
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        self._health_monitor_task: asyncio.Task | None = None
+        self._health_monitor: BrokerHealthMonitor | None = None  # type: ignore[valid-type]
 
         # Agent registry — populated by register_* methods
         self._data_agents: list[BaseAgent] = []
@@ -106,6 +125,9 @@ class ModernOrchestrator:
         self._risk_agent: BaseAgent | None = None
         self._execution_agent: BaseAgent | None = None
         self._learning_agent: LLMAgent | None = None
+
+        # Telegram (for disconnect alerts)
+        self._telegram_bot = telegram_bot
 
         # Observability
         self.metrics_exporter = metrics_exporter
@@ -124,7 +146,7 @@ class ModernOrchestrator:
                 "momentum", "price-action",
                 "trade-thesis", "devils-advocate", "cio",
                 "risk-manager", "execution",
-                "learning"
+                "learning", "broker-health-monitor",
             ]
             health_checker.ensure_all_agents(all_agent_names)
 
@@ -236,9 +258,9 @@ class ModernOrchestrator:
                 # Get current price from analysis context
                 current_price = 0.0
                 try:
-                    bars = await self.broker.bars(symbol, "H1", 1)
+                    bars = await self._get_bars(symbol, "H1", 1)
                     if bars:
-                        current_price = bars[-1].close
+                        current_price = bars[-1].get("close", 0.0)
                 except Exception:
                     pass
 
@@ -388,9 +410,9 @@ class ModernOrchestrator:
 
         # Fetch market data for analysis agents
         try:
-            bars = await self.broker.bars(symbol, "H1", 200)
+            bars = await self._get_bars(symbol, "H1", 200)
             context["bars"] = list(bars)
-            context["current_price"] = bars[-1].close if bars else 0
+            context["current_price"] = bars[-1].get("close", 0.0) if bars else 0
         except Exception as e:
             logger.warning("bar_fetch_failed", error=str(e))
             context["bars"] = []
@@ -494,9 +516,9 @@ class ModernOrchestrator:
 
         # Add current price and bars
         try:
-            bars = await self.broker.bars(symbol, "H1", 50)
+            bars = await self._get_bars(symbol, "H1", 50)
             context["bars"] = list(bars)
-            context["current_price"] = bars[-1].close if bars else 0
+            context["current_price"] = bars[-1].get("close", 0.0) if bars else 0
         except Exception:
             pass
 
@@ -634,6 +656,7 @@ class ModernOrchestrator:
             "symbol": symbol,
             "decision": decision.model_dump(),
             "config": self.config,
+            "broker": self.broker,
         }
 
         # ── Guardian Pre-Trade Check (BEFORE every order) ───────────
@@ -777,6 +800,53 @@ class ModernOrchestrator:
         except Exception as e:
             logger.error("learning_phase_failed", error=str(e))
 
+    async def _get_bars(self, symbol: str, timeframe: str, count: int) -> list[dict]:
+        """Fetch OHLCV bars via the broker, using whichever method is available.
+
+        Brokers expose different methods:
+          - BrokerProtocol: async bars()
+          - MT5LinuxBroker: sync get_candles()
+          - MT5Broker/FBSBroker/PaperBroker: sync get_rates()
+
+        This helper tries each and returns a list of bar dicts. Returns [] on failure.
+        """
+        # 1. Try async bars() (BrokerProtocol, future)
+        if hasattr(self.broker, 'bars') and callable(self.broker.bars):
+            try:
+                result = await self.broker.bars(symbol, timeframe, count)
+                if result:
+                    return list(result)
+            except Exception:
+                pass
+
+        # 2. Try sync get_candles() (MT5LinuxBroker)
+        if hasattr(self.broker, 'get_candles') and callable(self.broker.get_candles):
+            try:
+                result = await asyncio.to_thread(
+                    self.broker.get_candles, symbol, timeframe, count
+                )
+                if result:
+                    return list(result)
+            except Exception:
+                pass
+
+        # 3. Try sync get_rates() (MT5Broker, PaperBroker, FBSBroker)
+        if hasattr(self.broker, 'get_rates') and callable(self.broker.get_rates):
+            try:
+                result = await asyncio.to_thread(
+                    self.broker.get_rates, symbol, timeframe, count
+                )
+                if result is not None:
+                    # get_rates may return DataFrame or list of dicts
+                    if hasattr(result, 'to_dict'):
+                        return result.to_dict('records')
+                    if isinstance(result, list):
+                        return result
+            except Exception:
+                pass
+
+        return []
+
     # ── Risk Context Builder (TradingAgents pattern) ─────────────────
 
     async def _build_risk_context(self, symbol: str) -> RiskContext | None:
@@ -830,6 +900,9 @@ class ModernOrchestrator:
         self._running = True
         symbols = self.config.trading.pairs if hasattr(self.config, "trading") else ["EURUSD"]
 
+        # ── Start broker health monitor (if broker supports it) ──
+        await self._start_broker_health_monitor(symbols)
+
         for symbol in symbols:
             task = asyncio.create_task(self._run_loop(symbol, interval))
             self._tasks.append(task)
@@ -844,12 +917,106 @@ class ModernOrchestrator:
 
     async def stop(self) -> None:
         self._running = False
+
+        # ── Stop health monitor first ──
+        await self._stop_broker_health_monitor()
+
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
         await self.nim.close()
         logger.info("orchestrator_stopped", cycles=self._cycle_count)
+
+    # ── Broker Health Monitor ────────────────────────────────────────
+
+    async def _start_broker_health_monitor(self, symbols: list[str]) -> None:
+        """Start the background broker health monitor if broker supports it.
+
+        Only activates for MT5LinuxBroker. The health monitor:
+        - Pings MT5 every 5s via RPyC
+        - Tracks tick freshness (stale-data protection)
+        - Triggers reconnect on disconnect
+        - Sends Telegram alerts on prolonged disconnects
+        """
+        if not _MT5_LINUX_AVAILABLE:
+            return
+
+        broker = self.broker
+        if not isinstance(broker, BrokerHealthAdapter):  # type: ignore[misc]
+            return
+
+        # Build Telegram callback from bot if available
+        telegram_cb = None
+        if self._telegram_bot and hasattr(self._telegram_bot, "send_alert"):
+            telegram_cb = self._telegram_bot.send_alert
+
+        # Build guardian data-stale callback
+        guardian_cb = self._create_data_stale_callback()
+
+        # Create health monitor
+        monitor = broker.start_health_monitor(
+            subscribed_pairs=symbols,
+            guardian_data_stale_callback=guardian_cb,
+        )
+        if monitor is None:
+            logger.warning("broker_health_monitor_not_available")
+            return
+
+        # Wire Telegram callback (can be set after construction)
+        if telegram_cb:
+            broker.set_telegram_callback(telegram_cb)
+            if broker._conn_mgr:
+                broker._conn_mgr.set_telegram_callback(telegram_cb)
+            monitor.set_telegram_callback(telegram_cb)
+
+        # Start background task
+        self._health_monitor_task = await monitor.start()
+        self._health_monitor = monitor
+
+        logger.info(
+            "broker_health_monitor_task_spawned",
+            symbols=symbols,
+            interval=HEALTH_PING_INTERVAL,
+        )
+
+    async def _stop_broker_health_monitor(self) -> None:
+        """Stop the broker health monitor gracefully."""
+        if self._health_monitor:
+            await self._health_monitor.stop()
+            self._health_monitor = None
+        if self._health_monitor_task and not self._health_monitor_task.done():
+            self._health_monitor_task.cancel()
+            try:
+                await self._health_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._health_monitor_task = None
+
+    def _create_data_stale_callback(self) -> Any:
+        """Create a callback that sets the guardian's data_stale flag.
+
+        Called by the health monitor when broker data is detected as stale.
+        """
+        def _set_data_stale() -> None:
+            if self.guardian:
+                self.guardian.halt_trading("data_stale")
+            logger.warning(
+                "guardian_data_stale_set",
+                reason="Broker health monitor detected stale data",
+            )
+            # Also update metrics
+            if self.metrics_exporter:
+                self.metrics_exporter.record_kill_switch(
+                    reason="data_stale",
+                    symbol="system",
+                )
+                self.metrics_exporter.set_kill_switch_active(True)
+            if self.health_checker:
+                self.health_checker.update_kill_switch(True, "data_stale")
+        return _set_data_stale
+
+    # ── Loop ─────────────────────────────────────────────────────────
 
     async def _run_loop(self, symbol: str, interval: float) -> None:
         while self._running:

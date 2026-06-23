@@ -14,6 +14,7 @@ are preserved below for backward compatibility.
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -139,6 +140,16 @@ def check_llm_errors(state: GuardianState) -> bool:
     return state.llm_errors >= state.max_llm_errors
 
 
+def check_data_stale(state: GuardianState) -> bool:
+    """Check if broker data is stale (set by health monitor).
+
+    This is the #1 prevention against trading on stale prices.
+    The health monitor sets trading_halted + halt_reason="data_stale"
+    when last_tick is > 5 seconds old.
+    """
+    return state.trading_halted and state.halt_reason == "data_stale"
+
+
 def check_win_rate_floor(state: GuardianState) -> bool:
     """Bayesian win-rate floor — halt if win rate drops below 0.25 after 10+ trades."""
     if state.total_trades < 10:
@@ -188,6 +199,7 @@ class GuardianAgent(DeterministicAgent):
     def __init__(self, config: Any = None, guardian_state: GuardianState | None = None):
         super().__init__(config=config)
         self._guardian_state = guardian_state
+        self._halt_lock = threading.Lock()
 
     async def analyze(self, context: dict[str, Any]) -> AgentReport:
         """Run all safety gate checks against the proposed trade context.
@@ -304,7 +316,7 @@ class GuardianAgent(DeterministicAgent):
             reasoning="All safety checks passed — trade approved by Guardian.",
         )
 
-    # ── 13 Kill-Switch Registry ────────────────────────────────────
+    # ── 14 Kill-Switch Registry ────────────────────────────────────
 
     KILLSWITCHES = [
         ("daily_loss", "Daily Loss Limit", "Halts if daily PnL exceeds configured limit"),
@@ -320,6 +332,7 @@ class GuardianAgent(DeterministicAgent):
         ("news_blackout", "News Blackout", "Trading halted for high-impact news"),
         ("drawdown", "Max Drawdown", "Drawdown exceeds configured maximum"),
         ("llm_errors", "LLM Error Rate", "Too many LLM failures"),
+        ("data_stale", "Stale Data Protection", "Broker data is stale — last tick > 5s old"),
     ]
 
     # ── Pipeline Integration Methods ────────────────────────────────
@@ -382,6 +395,10 @@ class GuardianAgent(DeterministicAgent):
                 "value": str(state.llm_errors),
                 "threshold": str(state.max_llm_errors)
             }),
+            ("data_stale", check_data_stale(state), {
+                "value": "stale" if check_data_stale(state) else "fresh",
+                "threshold": "fresh data required"
+            }),
         ]
 
         for switch_id, fired, details in checks:
@@ -400,8 +417,7 @@ class GuardianAgent(DeterministicAgent):
                 state.audit_log.append({"event": "killswitch_fired", **entry})
 
         if triggered:
-            state.trading_halted = True
-            state.halt_reason = "; ".join(t["id"] for t in triggered)
+            self._halt_trading("; ".join(t["id"] for t in triggered))
             logger.error(
                 "guardian_halted_trading",
                 switches=[t["id"] for t in triggered],
@@ -430,26 +446,22 @@ class GuardianAgent(DeterministicAgent):
 
         # Run pre-trade kill-switches
         if check_daily_loss(state):
-            state.trading_halted = True
-            state.halt_reason = "daily_loss"
+            self._halt_trading("daily_loss")
             logger.error("guardian_pre_trade_reject", reason="daily_loss", pnl=state.daily_pnl)
             return False, f"Daily loss limit reached: {state.daily_pnl:.2f}%"
 
         if check_weekly_loss(state):
-            state.trading_halted = True
-            state.halt_reason = "weekly_loss"
+            self._halt_trading("weekly_loss")
             logger.error("guardian_pre_trade_reject", reason="weekly_loss", pnl=state.weekly_pnl)
             return False, f"Weekly loss limit reached: {state.weekly_pnl:.2f}%"
 
         if check_consecutive_losses(state):
-            state.trading_halted = True
-            state.halt_reason = "consecutive_losses"
+            self._halt_trading("consecutive_losses")
             logger.error("guardian_pre_trade_reject", reason="consecutive_losses", count=state.consecutive_losses)
             return False, f"{state.consecutive_losses} consecutive losses"
 
         if check_margin_level(state):
-            state.trading_halted = True
-            state.halt_reason = "margin_level"
+            self._halt_trading("margin_level")
             logger.error("guardian_pre_trade_reject", reason="margin_level", level=state.margin_level)
             return False, f"Margin level too low: {state.margin_level:.1f}%"
 
@@ -458,13 +470,16 @@ class GuardianAgent(DeterministicAgent):
             return False, f"Lot size {lot_size} exceeds max {state.max_lot_size}"
 
         if check_spread(state):
-            state.trading_halted = True
-            state.halt_reason = "spread"
+            self._halt_trading("spread")
             logger.error("guardian_pre_trade_reject", reason="spread", spread=state.spread_current)
             return False, f"Spread too high: {state.spread_current:.1f} pips"
 
         if check_news_blackout(state, pair):
             return False, "News blackout active"
+
+        if check_data_stale(state):
+            logger.error("guardian_pre_trade_reject", reason="data_stale")
+            return False, "Broker data is stale — last tick > 5s old"
 
         logger.info("guardian_pre_trade_approved", pair=pair, lot_size=lot_size)
         return True, "Approved"
@@ -563,3 +578,18 @@ class GuardianAgent(DeterministicAgent):
         if not hasattr(self, '_guardian_state'):
             raise RuntimeError("GuardianAgent._guardian_state not set. Pass GuardianState to __init__.")
         return self._guardian_state
+
+    def _halt_trading(self, reason: str) -> None:
+        """Thread-safe halt of all trading with a given reason.
+
+        Uses a lock to prevent races between concurrent callers
+        (e.g. health monitor and pipeline both checking guardian).
+        """
+        state = self._get_state()
+        with self._halt_lock:
+            state.trading_halted = True
+            state.halt_reason = reason
+
+    def halt_trading(self, reason: str) -> None:
+        """Public thread-safe halt — callable from external callers (e.g. health monitor)."""
+        self._halt_trading(reason)

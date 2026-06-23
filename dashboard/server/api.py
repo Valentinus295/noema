@@ -131,6 +131,17 @@ async def auth_middleware(request: Request, call_next):
 
     return await call_next(request)
 
+# ── CORS Configuration ──────────────────────────────────────────
+
+# Configurable via NOEMA_CORS_ORIGIN env var (comma-separated origins).
+# Defaults to common local dev frontends.
+_CORS_ORIGIN_ENV = os.getenv("NOEMA_CORS_ORIGIN", "http://localhost:3000")
+ALLOW_ORIGINS = [
+    origin.strip()
+    for origin in _CORS_ORIGIN_ENV.split(",")
+    if origin.strip()
+]
+
 # ── App Setup ───────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -143,15 +154,11 @@ app = FastAPI(
 # Register auth middleware
 app.middleware("http")(auth_middleware)
 
-# CORS: Restrict to dev frontends in development.
-# In production, replace with your actual dashboard domain(s).
+# CORS: Configurable via NOEMA_CORS_ORIGIN env var (comma-separated).
+# Default: http://localhost:3000.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:8000",
-    ],
+    allow_origins=ALLOW_ORIGINS,
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )

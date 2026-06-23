@@ -154,6 +154,13 @@ class MT5ConnectionManager:
         """Check if trading is allowed."""
         return self.state.connected and not self.state.halt_new_entries
 
+    @property
+    def tick_age_secs(self) -> float:
+        """Seconds since last tick update. Returns -1.0 if no tick ever received."""
+        if self._last_tick_timestamp == 0:
+            return -1.0
+        return time.monotonic() - self._last_tick_timestamp
+
     def update_tick_timestamp(self) -> None:
         """Called by broker on every fresh tick to mark data freshness."""
         self._last_tick_timestamp = time.monotonic()
@@ -267,6 +274,10 @@ class MT5ConnectionManager:
         if self._disconnect_start is None:
             return 0.0
         return time.monotonic() - self._disconnect_start
+
+    def set_telegram_callback(self, callback: Any) -> None:
+        """Set the Telegram alert callback."""
+        self.telegram_callback = callback
 
     def mark_reconnect(self) -> None:
         """Clear disconnect tracking on reconnect."""

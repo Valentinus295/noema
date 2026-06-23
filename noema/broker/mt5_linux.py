@@ -92,6 +92,26 @@ def _record_rpyc_latency(latency_ms: float) -> None:
 # ── BrokerHealthMonitor ─────────────────────────────────────────────
 
 
+from abc import ABC, abstractmethod
+
+
+class BrokerHealthAdapter(ABC):
+    """Interface for brokers that support background health monitoring.
+
+    Any broker implementing this interface can be monitored by
+    the orchestrator's BrokerHealthMonitor subsystem.
+    """
+
+    @abstractmethod
+    def start_health_monitor(
+        self,
+        subscribed_pairs: list[str] | None = None,
+        guardian_data_stale_callback: Callable[[], None] | None = None,
+    ) -> Any:
+        """Create and return a BrokerHealthMonitor for this broker."""
+        ...
+
+
 class BrokerHealthMonitor:
     """Background async health monitor for MT5 broker connectivity.
 
@@ -244,6 +264,10 @@ class BrokerHealthMonitor:
                 except Exception:
                     pass
 
+    def set_telegram_callback(self, callback: Callable | None) -> None:
+        """Set the Telegram alert callback for this monitor."""
+        self._telegram = callback
+
     async def _send_alert(self, message: str) -> None:
         """Send Telegram alert if callback is configured."""
         if self._telegram:
@@ -259,7 +283,7 @@ class BrokerHealthMonitor:
 # ── MT5LinuxBroker ──────────────────────────────────────────────────
 
 
-class MT5LinuxBroker(BrokerBase):
+class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
     """MetaTrader 5 broker for Linux via Wine + RPyC.
 
     This broker wraps mt5linux to provide the same interface as the
@@ -470,10 +494,10 @@ class MT5LinuxBroker(BrokerBase):
         subscribed_pairs: list[str] | None = None,
         guardian_data_stale_callback: Callable[[], None] | None = None,
     ) -> BrokerHealthMonitor | None:
-        """Start the background health monitor task.
+        """Create and return the health monitor instance.
 
-        Called by the orchestrator AFTER initialize().
-        Returns the monitor instance or None if already running.
+        Caller must call await monitor.start() to begin the background task.
+        Returns None if connection manager not wired.
         """
         if self._health_monitor is not None:
             logger.warning("health_monitor_already_running")
@@ -489,13 +513,8 @@ class MT5LinuxBroker(BrokerBase):
             guardian_data_stale_callback=guardian_data_stale_callback,
             subscribed_pairs=subscribed_pairs,
         )
-        # Fire-and-forget: task is stored on the monitor
-        self._health_monitor._task_h = asyncio.ensure_future(
-            self._health_monitor._run()
-        )
-        self._health_monitor._running = True
         logger.info(
-            "broker_health_monitor_started",
+            "broker_health_monitor_created",
             interval=HEALTH_PING_INTERVAL,
             pairs=subscribed_pairs,
         )
@@ -506,6 +525,10 @@ class MT5LinuxBroker(BrokerBase):
         if self._health_monitor:
             await self._health_monitor.stop()
             self._health_monitor = None
+
+    def set_telegram_callback(self, callback: Callable | None) -> None:
+        """Set the Telegram alert callback for this broker."""
+        self._telegram_callback = callback
 
     @property
     def connection_manager(self) -> MT5ConnectionManager | None:
@@ -604,6 +627,13 @@ class MT5LinuxBroker(BrokerBase):
         except Exception as exc:
             logger.error("account_info_failed", error=str(exc))
             return None
+
+    def get_account_info(self) -> dict | None:
+        """Get account info (delegates to account_info).
+
+        Added for BrokerBase compatibility — connection manager calls this.
+        """
+        return self.account_info()
 
     # ── Market Data ─────────────────────────────────────────────
 
@@ -727,7 +757,7 @@ class MT5LinuxBroker(BrokerBase):
                 "order_blocked_stale_data",
                 symbol=symbol,
                 last_tick_age_secs=round(
-                    time.monotonic() - (self._conn_mgr._last_tick_timestamp if self._conn_mgr else 0), 1
+                    self._conn_mgr.tick_age_secs if self._conn_mgr else -1.0, 1
                 ),
             )
             self._data_stale = True
@@ -859,6 +889,14 @@ class MT5LinuxBroker(BrokerBase):
 
     def get_positions(self) -> list[Position]:
         """Get all open positions."""
+        return self.get_open_positions()
+
+    def get_open_positions(self, magic: int = 0) -> list[Position]:
+        """Get all open positions (alias used by connection manager).
+
+        Args:
+            magic: Optional magic number filter (0 = all positions).
+        """
         if not self._connected:
             return []
 
