@@ -600,6 +600,8 @@ case "$MT5_AUTO_CHOICE" in
         HEADLESS=true
         echo "Noema_MT5_HEADLESS=true" >> .env
         echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+        # Load .env so mt5_daemon can find credentials
+        set -a; source .env 2>/dev/null; set +a
         echo ""
         echo -e "  → Starting MT5 headless..."
         source .venv/bin/activate 2>/dev/null || true
@@ -613,6 +615,8 @@ case "$MT5_AUTO_CHOICE" in
     2)
         echo "Noema_MT5_HEADLESS=false" >> .env
         echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+        # Load .env so mt5_daemon can find credentials
+        set -a; source .env 2>/dev/null; set +a
         echo ""
         echo -e "  → Starting MT5 with window..."
         source .venv/bin/activate 2>/dev/null || true

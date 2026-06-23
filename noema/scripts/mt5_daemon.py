@@ -26,12 +26,29 @@ Architecture:
 
 from __future__ import annotations
 
-import argparse
 import os
 import signal
 import socket
 import subprocess
 import sys
+import time
+from pathlib import Path
+
+# Load .env before anything else so os.getenv() finds credentials
+_DOTENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+if _DOTENV_PATH.exists():
+    with open(_DOTENV_PATH) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+
+
+import argparse
 import time
 from pathlib import Path
 from typing import Any
