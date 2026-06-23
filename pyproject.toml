@@ -104,6 +104,9 @@ v2 = [
     "nautilus_trader>=1.200",
 ]
 
+[project.scripts]
+noema = "noema.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/Valentinus295/noema"
 Repository = "https://github.com/Valentinus295/noema"
