@@ -226,17 +226,53 @@ check_cmd pip3 2>/dev/null || check_cmd uv
 # ── Step 0.5: System dependencies (CRITICAL for builds) ────────
 if [ "$OS" = "Linux" ]; then
     section "Step 0.5: System build dependencies"
-    info "Installing build tools and libraries..."
+
+    # Update package list once (shared across all installs)
     sudo apt-get update -qq 2>/dev/null
+
+    # Install build tools and libraries
+    # NOTE: libta-lib-dev is NOT in standard apt repos — built from source below
+    info "Installing build tools and libraries..."
     sudo apt-get install -y -qq build-essential cmake pkg-config python3-venv \
-        libssl-dev libffi-dev libta-lib-dev curl 2>&1 | tail -3
+        libssl-dev libffi-dev wget curl 2>&1 | tail -3
+
     if command -v cmake &> /dev/null; then
         success "Build tools installed (gcc, cmake, pkg-config)"
     fi
+
+    # ═══════════════════════════════════════════════════════════
+    # TA-Lib: Build from source (NOT available in standard apt repos)
+    # Idempotent — skips if already installed
+    # ═══════════════════════════════════════════════════════════
     if ldconfig -p 2>/dev/null | grep -q libta_lib; then
-        success "TA-Lib C library available"
+        success "TA-Lib C library already installed (skipping build)"
     else
-        warn "TA-Lib C library may not be installed — pip TA-Lib will fail if missing"
+        info "Building TA-Lib from source (not in apt repos)..."
+        TA_BUILD_DIR=$(mktemp -d)
+        (
+            cd "$TA_BUILD_DIR"
+            wget -q http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz || {
+                echo "TA-Lib download failed — trying mirror..."
+                wget -q https://github.com/TA-Lib/ta-lib/releases/download/v0.4.0/ta-lib-0.4.0-src.tar.gz || {
+                    echo "TA-Lib mirror also failed"
+                    exit 1
+                }
+            }
+            tar xzf ta-lib-0.4.0-src.tar.gz
+            cd ta-lib/
+            ./configure --prefix=/usr 2>&1 | tail -3
+            make -j"$(nproc)" 2>&1 | tail -3
+            sudo make install 2>&1 | tail -3
+            sudo ldconfig
+        )
+        rm -rf "$TA_BUILD_DIR"
+
+        if ldconfig -p 2>/dev/null | grep -q libta_lib; then
+            success "TA-Lib C library built and installed"
+        else
+            warn "TA-Lib C library build may have failed — pip TA-Lib will fail if missing"
+            info "Manual fix: https://github.com/TA-Lib/ta-lib#build-from-source"
+        fi
     fi
 fi
 check_cmd cargo 2>/dev/null || true  # Rust optional at first
