@@ -8,7 +8,7 @@ Components:
 - PerformanceAggregator: Win rate, confidence calibration (Brier score), Sharpe
 - AnomalyDetector: Signal drift, latency spikes, calibration decay
 - StrategyAllocator: Adjusts agent weights based on performance
-- FleetManager: Multi-symbol orchestration (Phase 3 preparation)
+- FleetManager: Multi-symbol orchestration with correlation, capital allocation, drawdown
 
 Anti-hallucination rules:
 - All performance metrics are PURE MATH (win rate, Sharpe, drawdown)
@@ -770,30 +770,463 @@ class StrategyAllocator:
 
 
 # ═══════════════════════════════════════════════════
-# Fleet Manager (Phase 3 Preparation)
+# Fleet Manager (Phase 3: Full Multi-Symbol Orchestration)
 # ═══════════════════════════════════════════════════
 
-class FleetManager:
-    """Manages multi-symbol orchestration — Phase 3 preparation.
+@dataclass
+class FleetDrawdown:
+    """Fleet-wide drawdown tracking (Phase 3)."""
+    peak_equity: float = 0.0
+    current_equity: float = 0.0
+    current_drawdown_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    max_drawdown_duration_hours: float = 0.0
+    drawdown_start: float = 0.0  # monotonic timestamp
+    in_drawdown: bool = False
+    last_updated: float = 0.0
 
-    Coordinates trading across multiple symbols, tracks per-symbol health,
-    and detects cross-symbol correlation risks.
+    def update(self, total_equity: float) -> None:
+        """Update drawdown with latest fleet equity."""
+        now = time.monotonic()
+        self.current_equity = total_equity
+
+        if total_equity > self.peak_equity:
+            self.peak_equity = total_equity
+            self.in_drawdown = False
+            self.drawdown_start = 0.0
+        else:
+            self.current_drawdown_pct = (
+                (self.peak_equity - total_equity) / self.peak_equity * 100
+                if self.peak_equity > 0 else 0.0
+            )
+
+            if self.current_drawdown_pct > 0 and not self.in_drawdown:
+                self.in_drawdown = True
+                self.drawdown_start = now
+            elif self.current_drawdown_pct <= 0:
+                self.in_drawdown = False
+                self.drawdown_start = 0.0
+
+            self.max_drawdown_pct = max(self.max_drawdown_pct, self.current_drawdown_pct)
+
+            if self.drawdown_start > 0:
+                self.max_drawdown_duration_hours = (
+                    (now - self.drawdown_start) / 3600.0
+                )
+
+        self.last_updated = now
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "peak_equity": round(self.peak_equity, 2),
+            "current_equity": round(self.current_equity, 2),
+            "current_drawdown_pct": round(self.current_drawdown_pct, 2),
+            "max_drawdown_pct": round(self.max_drawdown_pct, 2),
+            "in_drawdown": self.in_drawdown,
+            "drawdown_duration_hours": round(self.max_drawdown_duration_hours, 1),
+        }
+
+
+@dataclass
+class CapitalAllocation:
+    """Per-symbol capital allocation (Phase 3)."""
+    symbol: str
+    allocation_pct: float = 0.0       # % of total capital
+    max_allocation_pct: float = 0.30  # Never allocate >30% to one symbol
+    risk_per_trade_pct: float = 0.25  # Risk per trade (% of allocation)
+    priority: int = 5                 # 1-10, higher = more capital
+    trend_bonus: float = 0.0          # Bonus for strong HTF trend
+    correlation_penalty: float = 0.0  # Penalty for high correlation
+    is_active: bool = True
+    last_updated: float = 0.0
+
+    @property
+    def effective_allocation(self) -> float:
+        """Effective allocation after bonuses and penalties."""
+        eff = self.allocation_pct + self.trend_bonus - self.correlation_penalty
+        return max(0.0, min(self.max_allocation_pct, eff))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "allocation_pct": round(self.allocation_pct, 4),
+            "effective_allocation": round(self.effective_allocation, 4),
+            "risk_per_trade_pct": round(self.risk_per_trade_pct, 4),
+            "trend_bonus": round(self.trend_bonus, 4),
+            "correlation_penalty": round(self.correlation_penalty, 4),
+            "is_active": self.is_active,
+        }
+
+
+class FleetManager:
+    """Full Phase 3 Fleet Manager — multi-symbol orchestration.
+
+    Coordinates trading across multiple symbols with:
+    - Per-symbol orchestrator instances
+    - Symbol-level health monitoring
+    - Cross-symbol correlation awareness (via CorrelationMatrix)
+    - Capital allocation across symbols
+    - Fleet-wide drawdown tracking
+    - USD exposure monitoring and prevention
+    - Max drawdown kill-switch at fleet level
+
+    This replaces the Phase 2 skeleton with full multi-symbol capability.
     """
 
-    def __init__(self):
+    # Fleet-level constraints
+    MAX_FLEET_DRAWDOWN_PCT = 15.0          # Hard kill-switch
+    MAX_USD_EXPOSURE = 0.80                # Max USD concentration
+    MAX_CORRELATED_PAIRS = 3               # Max concurrent highly-correlated positions
+    DEFAULT_EQUAL_ALLOCATION = True         # Equal allocation unless overridden
+
+    def __init__(
+        self,
+        symbols: list[str] | None = None,
+        correlation_matrix: Any = None,  # CorrelationMatrix (optional) to avoid import cycle
+    ):
         self._fleet_status: dict[str, FleetStatus] = {}
         self._symbol_agents: dict[str, list[str]] = defaultdict(list)
         self._logger = logger.bind(component="fleet_manager")
 
+        # ── Phase 3: Orchestrator registry ──
+        self._orchestrators: dict[str, Any] = {}  # symbol → SymbolOrchestrator
+
+        # ── Phase 3: Correlation (set after init to avoid import cycle) ──
+        self._correlation = correlation_matrix
+
+        # ── Phase 3: Capital allocation ──
+        self._allocations: dict[str, CapitalAllocation] = {}
+
+        # ── Phase 3: Fleet drawdown ──
+        self._drawdown = FleetDrawdown()
+
+        # ── Phase 3: Open positions tracking ──
+        self._open_positions: dict[str, str] = {}  # symbol → direction
+
+        # Initialize symbols
+        for sym in (symbols or []):
+            self.register_symbol(sym)
+
+    # ── Symbol Registration ────────────────────────────────────────
+
     def register_symbol(
         self,
         symbol: str,
-        agents: list[str],
+        agents: list[str] | None = None,
     ) -> None:
-        """Register a trading symbol with its agent roster."""
-        self._symbol_agents[symbol] = agents
+        """Register a trading symbol with optional agent roster."""
+        self._symbol_agents[symbol] = agents or []
         if symbol not in self._fleet_status:
-            self._fleet_status[symbol] = FleetStatus()
+            status = FleetStatus()
+            status.symbols_active.append(symbol)
+            self._fleet_status[symbol] = status
+
+        # Initialize equal allocation
+        all_symbols = list(self._fleet_status.keys())
+        eq_alloc = 1.0 / max(len(all_symbols), 1)
+        for sym in all_symbols:
+            if sym not in self._allocations:
+                self._allocations[sym] = CapitalAllocation(
+                    symbol=sym,
+                    allocation_pct=eq_alloc,
+                    last_updated=time.monotonic(),
+                )
+
+    # ── Orchestrator Management ────────────────────────────────────
+
+    def register_orchestrator(self, symbol: str, orchestrator: Any) -> None:
+        """Register a SymbolOrchestrator instance for a symbol.
+
+        The FleetManager holds a reference to each per-symbol orchestrator
+        and coordinates their lifecycle.
+        """
+        self._orchestrators[symbol] = orchestrator
+        # Provide correlation matrix to orchestrator
+        if self._correlation and hasattr(orchestrator, 'set_correlation_matrix'):
+            orchestrator.set_correlation_matrix(self._correlation)
+        self._logger.info("orchestrator_registered", symbol=symbol)
+
+    def get_orchestrator(self, symbol: str) -> Any | None:
+        """Get the SymbolOrchestrator for a symbol."""
+        return self._orchestrators.get(symbol)
+
+    def get_all_orchestrators(self) -> dict[str, Any]:
+        """Get all registered orchestrators."""
+        return dict(self._orchestrators)
+
+    # ── Correlation Awareness ──────────────────────────────────────
+
+    def set_correlation_matrix(self, corr: Any) -> None:
+        """Set the shared correlation matrix."""
+        self._correlation = corr
+        # Push to all orchestrators
+        for orch in self._orchestrators.values():
+            if hasattr(orch, 'set_correlation_matrix'):
+                orch.set_correlation_matrix(corr)
+
+    async def check_cross_symbol_correlation(self) -> dict[str, Any]:
+        """Run cross-symbol correlation analysis.
+
+        Detects:
+        - Anti-correlated pairs with opposing bets
+        - USD exposure concentration
+        - Doubled directional exposure on highly correlated pairs
+
+        Returns:
+            Analysis dict with warnings and recommendations.
+        """
+        if not self._correlation or not self._correlation.is_ready:
+            return {"status": "no_data", "message": "Correlation matrix not ready"}
+
+        analysis = self._correlation.analyze()
+        result: dict[str, Any] = {
+            "status": "ok",
+            "usd_exposure": analysis.usd_exposure,
+            "anti_correlated_pairs": [
+                {"a": a, "b": b, "corr": c}
+                for a, b, c in analysis.anti_correlated_pairs
+            ],
+            "highly_correlated_pairs": [
+                {"a": a, "b": b, "corr": c}
+                for a, b, c in analysis.highly_correlated_pairs
+            ],
+            "recommendations": analysis.basket_recommendations[:5],
+            "data_quality": analysis.data_quality,
+        }
+
+        # ── Check opposing bets ──
+        positions = self.get_open_positions()
+        if len(positions) >= 2:
+            position_list = list(positions.items())
+            for i in range(len(position_list)):
+                for j in range(i + 1, len(position_list)):
+                    risky, reason = self._correlation.are_opposing_bets_risky(
+                        position_list[i], position_list[j],
+                    )
+                    if risky:
+                        result["opposing_bet_warning"] = reason
+                        result["status"] = "warning"
+                        self._logger.warning("opposing_bet_detected", reason=reason)
+
+        # ── Check USD exposure ──
+        if analysis.usd_exposure > self.MAX_USD_EXPOSURE:
+            result["usd_exposure_warning"] = (
+                f"USD exposure at {analysis.usd_exposure:.0%} exceeds "
+                f"{self.MAX_USD_EXPOSURE:.0%} threshold"
+            )
+            result["status"] = "critical"
+            self._logger.warning(
+                "usd_exposure_critical",
+                exposure=analysis.usd_exposure,
+            )
+
+        # ── Count correlated positions ──
+        correlated_count = 0
+        for a, b, _ in analysis.highly_correlated_pairs:
+            if a in positions and b in positions:
+                correlated_count += 1
+
+        if correlated_count > self.MAX_CORRELATED_PAIRS:
+            result["correlation_overload"] = (
+                f"{correlated_count} correlated pair positions exceed "
+                f"limit of {self.MAX_CORRELATED_PAIRS}"
+            )
+            if result["status"] == "ok":
+                result["status"] = "warning"
+
+        return result
+
+    def should_block_position(
+        self, symbol: str, direction: str
+    ) -> tuple[bool, str]:
+        """Check if a new position should be blocked due to correlation risk.
+
+        Called BEFORE opening a position to prevent:
+        1. Opposing bets on anti-correlated pairs
+        2. Doubled directional exposure on highly correlated pairs
+        3. Excessive USD concentration
+
+        Args:
+            symbol: Pair to check.
+            direction: "BUY" or "SELL".
+
+        Returns:
+            (blocked: bool, reason: str)
+        """
+        if not self._correlation or not self._correlation.is_ready:
+            return False, "No correlation data"
+
+        positions = dict(self._open_positions)
+        # Temporarily add proposed position
+        positions[symbol] = direction
+
+        warnings: list[str] = []
+        position_list = list(positions.items())
+
+        for i in range(len(position_list)):
+            for j in range(i + 1, len(position_list)):
+                risky, reason = self._correlation.are_opposing_bets_risky(
+                    position_list[i], position_list[j],
+                )
+                if risky:
+                    warnings.append(reason)
+
+        # Check USD exposure with proposed position
+        usd_warn, usd_msg = self._correlation.get_usd_exposure_warning(positions)
+        if usd_warn:
+            warnings.append(usd_msg)
+
+        if warnings:
+            return True, "; ".join(warnings)
+        return False, "Pass"
+
+    # ── Capital Allocation ─────────────────────────────────────────
+
+    def update_capital_allocation(
+        self,
+        total_capital: float,
+        per_symbol_pnl: dict[str, float] | None = None,
+    ) -> dict[str, CapitalAllocation]:
+        """Update capital allocation across all symbols.
+
+        Allocation is influenced by:
+        1. Base: equal allocation (1/N)
+        2. Trend bonus: +5% for strong HTF trend
+        3. Correlation penalty: -5% per highly-correlated overlap
+        4. PnL performance: +2% for profitable symbols
+
+        Args:
+            total_capital: Total account capital.
+            per_symbol_pnl: Dict of symbol → current PnL.
+
+        Returns:
+            Updated allocations.
+        """
+        symbols = list(self._fleet_status.keys())
+        if not symbols:
+            return {}
+
+        base_allocation = 1.0 / len(symbols)
+        per_symbol_pnl = per_symbol_pnl or {}
+
+        # Get correlation data
+        correlation_penalties: dict[str, float] = {s: 0.0 for s in symbols}
+        if self._orchestrators:
+            # Check each symbol's trend strength for trend bonus
+            for sym in symbols:
+                orch = self._orchestrators.get(sym)
+                if orch and hasattr(orch, 'is_trend_aligned'):
+                    if orch.is_trend_aligned:
+                        alloc = self._allocations.get(sym)
+                        if alloc:
+                            alloc.trend_bonus = 0.05  # +5% for aligned trends
+
+                # Correlation penalty: highly correlated pairs share risk
+                if self._correlation and self._correlation.is_ready:
+                    for other in symbols:
+                        if other >= sym:
+                            continue
+                        corr_val = self._correlation.check_anti_correlation(sym, other)
+                        if corr_val is not None and abs(corr_val) > 0.7:
+                            # Both pairs get a penalty = half the excess correlation
+                            penalty = (abs(corr_val) - 0.7) * 0.25
+                            correlation_penalties[sym] += penalty
+                            correlation_penalties[other] += penalty
+
+        # Apply PnL bonus
+        for sym in symbols:
+            pnl = per_symbol_pnl.get(sym, 0.0)
+            alloc = self._allocations.get(sym)
+            if alloc:
+                alloc.allocation_pct = base_allocation
+                alloc.correlation_penalty = min(correlation_penalties.get(sym, 0.0), 0.15)
+                # PnL bonus: profitable symbols get slight increase
+                if pnl > 0 and total_capital > 0:
+                    pnl_pct = pnl / total_capital
+                    if pnl_pct > 0.01:
+                        alloc.trend_bonus += 0.02  # +2% for profitable symbols
+                alloc.last_updated = time.monotonic()
+
+        return dict(self._allocations)
+
+    def get_allocation(self, symbol: str) -> CapitalAllocation | None:
+        """Get capital allocation for a symbol."""
+        return self._allocations.get(symbol)
+
+    def get_total_allocated(self) -> float:
+        """Get sum of effective allocations (should be ~1.0)."""
+        return sum(a.effective_allocation for a in self._allocations.values())
+
+    # ── Fleet Drawdown ─────────────────────────────────────────────
+
+    def update_fleet_equity(self, total_equity: float) -> FleetDrawdown:
+        """Update fleet-wide drawdown tracking.
+
+        Called after each trading cycle or broker account update.
+
+        Args:
+            total_equity: Current total account equity.
+
+        Returns:
+            Updated FleetDrawdown.
+        """
+        self._drawdown.update(total_equity)
+
+        # ── Fleet drawdown kill-switch ──
+        if self._drawdown.current_drawdown_pct > self.MAX_FLEET_DRAWDOWN_PCT:
+            self._logger.error(
+                "fleet_drawdown_killswitch",
+                drawdown_pct=self._drawdown.current_drawdown_pct,
+                max_allowed=self.MAX_FLEET_DRAWDOWN_PCT,
+            )
+            # Halt ALL symbols
+            for sym in list(self._fleet_status.keys()):
+                self.halt_symbol(sym, f"Fleet drawdown {self._drawdown.current_drawdown_pct:.1f}% > {self.MAX_FLEET_DRAWDOWN_PCT}%")
+
+        return self._drawdown
+
+    @property
+    def fleet_drawdown_pct(self) -> float:
+        """Current fleet drawdown percentage."""
+        return self._drawdown.current_drawdown_pct
+
+    @property
+    def fleet_max_drawdown_pct(self) -> float:
+        """Maximum historical fleet drawdown."""
+        return self._drawdown.max_drawdown_pct
+
+    # ── Open Position Tracking ─────────────────────────────────────
+
+    def record_open_position(self, symbol: str, direction: str) -> None:
+        """Record an open position for correlation tracking."""
+        self._open_positions[symbol] = direction.upper()
+        self._logger.info("position_opened", symbol=symbol, direction=direction)
+
+    def record_closed_position(self, symbol: str) -> None:
+        """Remove a closed position from tracking."""
+        if symbol in self._open_positions:
+            del self._open_positions[symbol]
+            self._logger.info("position_closed", symbol=symbol)
+
+    def get_open_positions(self) -> dict[str, str]:
+        """Get all currently open positions."""
+        return dict(self._open_positions)
+
+    def count_correlated_positions(self, symbol: str) -> int:
+        """Count how many open positions are highly correlated with a symbol."""
+        if not self._correlation or not self._correlation.is_ready:
+            return 0
+
+        count = 0
+        for other in self._open_positions:
+            if other == symbol:
+                continue
+            corr = self._correlation.check_anti_correlation(symbol, other)
+            if corr is not None and abs(corr) > 0.7:
+                count += 1
+        return count
+
+    # ── Symbol Health ──────────────────────────────────────────────
 
     def update_symbol_health(
         self,
@@ -808,6 +1241,19 @@ class FleetManager:
             status.regime_per_symbol[symbol] = regime
             status.last_updated = time.monotonic()
 
+            # Auto-halt if health too low
+            if health_score < 20.0:
+                self.halt_symbol(symbol, f"Health score critically low: {health_score:.1f}")
+
+    def get_symbol_health(self, symbol: str) -> float:
+        """Get health score for a symbol (0-100)."""
+        status = self._fleet_status.get(symbol)
+        if status:
+            return status.per_symbol_health.get(symbol, 100.0)
+        return 0.0
+
+    # ── Symbol Lifecycle ───────────────────────────────────────────
+
     def halt_symbol(self, symbol: str, reason: str) -> None:
         """Halt trading for a specific symbol."""
         if symbol in self._fleet_status:
@@ -816,6 +1262,12 @@ class FleetManager:
                 status.symbols_halted.append(symbol)
             if symbol in status.symbols_active:
                 status.symbols_active.remove(symbol)
+
+            # Also halt the orchestrator
+            orch = self._orchestrators.get(symbol)
+            if orch and hasattr(orch, 'halt'):
+                orch.halt(reason)
+
             self._logger.warning("symbol_halted", symbol=symbol, reason=reason)
 
     def resume_symbol(self, symbol: str) -> None:
@@ -826,29 +1278,144 @@ class FleetManager:
                 status.symbols_halted.remove(symbol)
             if symbol not in status.symbols_active:
                 status.symbols_active.append(symbol)
+
+            # Also resume the orchestrator
+            orch = self._orchestrators.get(symbol)
+            if orch and hasattr(orch, 'resume'):
+                orch.resume()
+
             self._logger.info("symbol_resumed", symbol=symbol)
+
+    def pause_symbol(self, symbol: str, reason: str) -> None:
+        """Temporarily pause trading for a symbol (not a full halt)."""
+        orch = self._orchestrators.get(symbol)
+        if orch and hasattr(orch, 'pause'):
+            orch.pause(reason)
+        self._logger.info("symbol_paused", symbol=symbol, reason=reason)
 
     def get_active_symbols(self) -> list[str]:
         """Get currently active trading symbols."""
-        return list(self._fleet_status.keys())
+        return [
+            sym for sym, status in self._fleet_status.items()
+            if sym in status.symbols_active and sym not in status.symbols_halted
+        ]
+
+    def get_halted_symbols(self) -> list[str]:
+        """Get halted symbols."""
+        return [
+            sym for sym, status in self._fleet_status.items()
+            if sym in status.symbols_halted
+        ]
+
+    def is_symbol_active(self, symbol: str) -> bool:
+        """Check if a symbol is active and tradeable."""
+        status = self._fleet_status.get(symbol)
+        if not status:
+            return False
+        return (
+            symbol in status.symbols_active
+            and symbol not in status.symbols_halted
+        )
+
+    # ── Fleet Summary ──────────────────────────────────────────────
 
     def get_fleet_summary(self) -> dict[str, Any]:
-        """Get a summary of the entire fleet."""
+        """Get a comprehensive summary of the entire fleet."""
+        active = self.get_active_symbols()
+        halted = self.get_halted_symbols()
+
+        # Collect per-symbol P&L
+        per_symbol_pnl = {}
+        for sym, orch in self._orchestrators.items():
+            if hasattr(orch, 'pnl'):
+                per_symbol_pnl[sym] = orch.pnl.to_dict()
+
         return {
             "total_symbols": len(self._fleet_status),
-            "active_symbols": sum(
-                1 for s in self._fleet_status.values()
-                if s.symbols_active
-            ),
-            "halted_symbols": sum(
-                1 for s in self._fleet_status.values()
-                if s.symbols_halted
-            ),
+            "active_symbols": len(active),
+            "halted_symbols": len(halted),
+            "active_list": active,
+            "halted_list": [(s, self._fleet_status[s].symbols_halted) for s in halted],
+            "open_positions": dict(self._open_positions),
+            "correlated_position_groups": self._get_correlated_groups(),
+            "drawdown": self._drawdown.to_dict(),
+            "allocations": {
+                sym: a.to_dict() for sym, a in self._allocations.items()
+            },
+            "per_symbol_pnl": per_symbol_pnl,
             "regimes": {
                 sym: status.regime_per_symbol.get(sym, "UNKNOWN")
                 for sym, status in self._fleet_status.items()
             },
+            "usd_exposure": (
+                self._correlation.analyze().usd_exposure
+                if self._correlation and self._correlation.is_ready
+                else -1.0
+            ),
         }
+
+    def get_fleet_pnl_summary(self) -> dict[str, Any]:
+        """Get aggregated P&L across all symbols."""
+        total_trades = 0
+        total_wins = 0
+        total_profit = 0.0
+        total_loss = 0.0
+
+        for orch in self._orchestrators.values():
+            if hasattr(orch, 'pnl'):
+                pnl = orch.pnl
+                total_trades += pnl.total_trades
+                total_wins += pnl.winning_trades
+                total_profit += pnl.total_profit
+                total_loss += pnl.total_loss
+
+        net_pnl = total_profit - total_loss
+        win_rate = total_wins / max(total_trades, 1)
+        profit_factor = total_profit / max(total_loss, 0.01)
+
+        return {
+            "total_trades": total_trades,
+            "winning_trades": total_wins,
+            "losing_trades": total_trades - total_wins,
+            "win_rate": round(win_rate, 4),
+            "profit_factor": round(profit_factor, 2),
+            "total_profit": round(total_profit, 2),
+            "total_loss": round(total_loss, 2),
+            "net_pnl": round(net_pnl, 2),
+            "fleet_drawdown_pct": round(self.fleet_drawdown_pct, 2),
+            "fleet_max_drawdown_pct": round(self.fleet_max_drawdown_pct, 2),
+        }
+
+    # ── Internal Helpers ───────────────────────────────────────────
+
+    def _get_correlated_groups(self) -> list[list[str]]:
+        """Group open positions by correlation (for risk visualization)."""
+        if not self._correlation or not self._correlation.is_ready:
+            return []
+
+        positions = list(self._open_positions.keys())
+        if len(positions) < 2:
+            return []
+
+        # Simple grouping: connect pairs with abs(corr) > 0.7
+        groups: list[set[str]] = []
+        assigned: set[str] = set()
+
+        for i in range(len(positions)):
+            if positions[i] in assigned:
+                continue
+            group: set[str] = {positions[i]}
+            for j in range(i + 1, len(positions)):
+                if positions[j] in assigned:
+                    continue
+                corr = self._correlation.check_anti_correlation(positions[i], positions[j])
+                if corr is not None and abs(corr) > 0.7:
+                    group.add(positions[j])
+            assigned.update(group)
+            if len(group) > 0:
+                groups.append(group)
+
+        return [list(g) for g in groups]
 
 
 # ═══════════════════════════════════════════════════

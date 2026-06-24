@@ -134,6 +134,64 @@ backtest:
     train_months: 6
     test_months: 2
 
+# ──────────────────── PHASE 5: INSTITUTIONAL ───────────────────
+# Multi-broker gateway aggregates FxPesa + FBS with smart routing
+multi_broker:
+  enabled: true
+  primary_broker: fxpesa          # fxpesa | fbs
+  routing_policy: best_liquidity  # best_price | best_liquidity | round_robin | failover
+  health_check_interval: 5.0      # seconds between broker health checks
+  failover_enabled: true
+
+# FIX Protocol stub — disabled by default, skeleton for future integration
+fix:
+  enabled: false                  # FIX is a stub, not yet connected
+  sender_comp_id: NOEMA
+  target_comp_id: BROKER
+  host: localhost
+  port: 9880
+  heartbeat_interval: 30
+  username: ""
+  password: ""
+  account: ""
+
+# Position reconciliation — detect & correct drift between Noema and brokers
+reconciliation:
+  enabled: true
+  run_on_startup: true
+  run_every_n_cycles: 5           # Reconcile every 5 decision cycles
+  auto_correct_enabled: false     # Auto-correct minor drifts (conservative: off by default)
+  price_tolerance_pips: 5.0
+  volume_tolerance_pct: 0.05
+  sl_tp_tolerance_pips: 10.0
+  auto_correct_max_volume_pct: 0.10
+  critical_drift_threshold_pct: 0.10
+
+# Risk reporting — daily / weekly / monthly analytics
+risk_reporting:
+  enabled: true
+  output_dir: reports/
+  risk_free_rate: 0.02            # annualized
+  var_window_days: 90
+  daily_report_config: true
+  weekly_report_config: true
+  monthly_report_config: true
+  export_format: json             # json | html | both
+
+# Regulatory compliance — audit trail, position limits, MiCA/SEC stubs
+compliance:
+  enabled: true
+  audit_trail_enabled: true
+  audit_trail_path: data/audit_trail.jsonl
+  audit_retention_days: 2555      # 7 years (MiCA/SEC requirement)
+  position_limit_enforcement: true
+  max_position_lot: 1.0
+  max_exposure_pct: 300.0
+  max_single_pair_pct: 50.0
+  pre_trade_compliance_check: true
+  jurisdiction: internal          # EU | US | UK | AU | internal
+  active_regulations: [internal]  # internal, mica, sec, etc.
+
 # ─────────────────────────── VERSIONING ───────────────────────
 versioning:
   # Every journal row and backtest artifact stamps: git_sha, settings_hash, strategy_version

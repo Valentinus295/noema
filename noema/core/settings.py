@@ -210,6 +210,70 @@ class EventConfig(BaseModel):
     reduced_size_pct: float = 0.50     # Position size during medium impact / conservative mode
 
 
+# ── Phase 5: Institutional Features ──────────────────────────────
+
+class MultiBrokerConfig(BaseModel):
+    """Multi-broker gateway configuration."""
+    enabled: bool = True
+    primary_broker: str = "fxpesa"        # "fxpesa" | "fbs"
+    routing_policy: str = "best_liquidity"  # "best_price" | "best_liquidity" | "round_robin" | "failover"
+    health_check_interval: float = 5.0     # seconds between broker health checks
+    failover_enabled: bool = True
+
+
+class FIXConfig(BaseModel):
+    """FIX protocol configuration (stub)."""
+    enabled: bool = False                  # Disabled by default — FIX is a stub
+    sender_comp_id: str = "NOEMA"
+    target_comp_id: str = "BROKER"
+    host: str = "localhost"
+    port: int = 9880
+    heartbeat_interval: int = 30           # seconds
+    username: str = ""
+    password: str = ""
+    account: str = ""
+
+
+class ReconciliationConfig(BaseModel):
+    """Position reconciliation configuration."""
+    enabled: bool = True
+    run_on_startup: bool = True
+    run_every_n_cycles: int = 5            # Run reconciliation every N decision cycles
+    auto_correct_enabled: bool = False     # Auto-correct minor drifts
+    price_tolerance_pips: float = 5.0      # Pips tolerance before flagging price drift
+    volume_tolerance_pct: float = 0.05     # 5% volume drift tolerance
+    sl_tp_tolerance_pips: float = 10.0     # Pips tolerance for SL/TP drift
+    auto_correct_max_volume_pct: float = 0.10  # Max 10% auto-correct
+    critical_drift_threshold_pct: float = 0.10  # >10% = CRITICAL
+
+
+class RiskReportingConfig(BaseModel):
+    """Risk reporting configuration."""
+    enabled: bool = True
+    output_dir: str = "reports/"
+    risk_free_rate: float = 0.02           # Annualized risk-free rate for Sharpe
+    var_window_days: int = 90
+    daily_report_config: bool = True
+    weekly_report_config: bool = True
+    monthly_report_config: bool = True
+    export_format: str = "json"            # "json" | "html" | "both"
+
+
+class ComplianceConfig(BaseModel):
+    """Regulatory compliance configuration."""
+    enabled: bool = True
+    audit_trail_enabled: bool = True
+    audit_trail_path: str = "data/audit_trail.jsonl"
+    audit_retention_days: int = 2555       # 7 years (MiCA/SEC requirement)
+    position_limit_enforcement: bool = True
+    max_position_lot: float = 1.0
+    max_exposure_pct: float = 300.0
+    max_single_pair_pct: float = 50.0
+    pre_trade_compliance_check: bool = True
+    jurisdiction: str = "internal"          # "EU" | "US" | "UK" | "AU" | "internal"
+    active_regulations: list[str] = ["internal"]  # "internal", "mica", "sec", etc.
+
+
 class Settings(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     portfolio: PortfolioConfig = Field(default_factory=PortfolioConfig)
@@ -220,6 +284,11 @@ class Settings(BaseModel):
     architecture: ArchitectureSettings = Field(default_factory=ArchitectureSettings)
     broker_sla: BrokerSLASettings = Field(default_factory=BrokerSLASettings)
     event: EventConfig = Field(default_factory=EventConfig)
+    multi_broker: MultiBrokerConfig = Field(default_factory=MultiBrokerConfig)
+    fix: FIXConfig = Field(default_factory=FIXConfig)
+    reconciliation: ReconciliationConfig = Field(default_factory=ReconciliationConfig)
+    risk_reporting: RiskReportingConfig = Field(default_factory=RiskReportingConfig)
+    compliance: ComplianceConfig = Field(default_factory=ComplianceConfig)
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///noema.db"
     redis_url: str = ""
@@ -250,6 +319,11 @@ def load_settings(path: Path | None = None) -> Settings:
         architecture=ArchitectureSettings(**data.get("architecture", {})),
         broker_sla=BrokerSLASettings(**data.get("broker_sla", {})),
         event=EventConfig(**data.get("event", {})),
+        multi_broker=MultiBrokerConfig(**data.get("multi_broker", {})),
+        fix=FIXConfig(**data.get("fix", {})),
+        reconciliation=ReconciliationConfig(**data.get("reconciliation", {})),
+        risk_reporting=RiskReportingConfig(**data.get("risk_reporting", {})),
+        compliance=ComplianceConfig(**data.get("compliance", {})),
         log_level=data.get("log_level", "INFO"),
         database_url=data.get("database_url", "sqlite+aiosqlite:///noema.db"),
         redis_url=data.get("redis_url", ""),

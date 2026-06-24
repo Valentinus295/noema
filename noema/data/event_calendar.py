@@ -398,10 +398,9 @@ class EventCalendarDataSource:
         """Fetch events from free web API (nfs.faireconomy.media)."""
         try:
             import requests
-import asyncio
 
             url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-            resp = await asyncio.to_thread(requests.get(url, timeout=10)
+            resp = requests.get(url, timeout=10)
             if resp.status_code != 200:
                 return []
 

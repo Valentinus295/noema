@@ -1,4 +1,4 @@
-"""Data package for Noema — market data feeds and economic calendar."""
+"""Data package for Noema — market data feeds, economic calendar, and correlation."""
 
 from noema.data.feed import MarketDataFeed
 from noema.data.calendar import EconomicCalendar
@@ -17,6 +17,13 @@ from noema.data.event_study import (
     EventImpactResult,
     EventStudyRecord,
 )
+from noema.data.correlation import (
+    CorrelationMatrix,
+    CorrelationAnalysis,
+    PAIR_CURRENCIES,
+    USD_PAIRS_BUY_USD,
+    USD_PAIRS_SELL_USD,
+)
 
 __all__ = [
     "MarketDataFeed",
@@ -32,4 +39,9 @@ __all__ = [
     "EventStudy",
     "EventImpactResult",
     "EventStudyRecord",
+    "CorrelationMatrix",
+    "CorrelationAnalysis",
+    "PAIR_CURRENCIES",
+    "USD_PAIRS_BUY_USD",
+    "USD_PAIRS_SELL_USD",
 ]

@@ -29,6 +29,16 @@ from noema.core.health import HealthChecker
 from noema.core.storage import TradeStore, RedisCache
 from noema.core.observability import init_observability
 
+# Phase 6: Production Hardening
+from noema.core.logging_config import configure_logging as _configure_logging
+from noema.core.config_validator import validate_config, format_validation_errors
+from noema.core.shutdown import (
+    ShutdownManager,
+    ShutdownConfig,
+    ShutdownPositionPolicy,
+    load_shutdown_config_from_env,
+)
+
 # ── Agent Imports ────────────────────────────────────────────────────
 # Layer 1: Data agents (deterministic)
 from noema.agents.macro import MacroEconomicAgent
@@ -440,6 +450,10 @@ async def main() -> None:
         "--no-mt5-auto", action="store_true",
         help="Skip MT5 auto-start even if configured",
     )
+    parser.add_argument(
+        "--no-validate", action="store_true",
+        help="Skip configuration validation on startup",
+    )
     args = parser.parse_args()
 
     # Load config
@@ -447,13 +461,31 @@ async def main() -> None:
     if args.dry_run:
         settings.broker.type = "paper"
 
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(
-            structlog.stdlib._NAME_TO_LEVEL.get(settings.log_level.lower(), 20)
-        ),
+    # ── Phase 6: Configure structured logging ────────────────────────
+    _configure_logging(
+        level=settings.log_level,
+        environment="production" if not args.dry_run else "development",
+        json_format=os.getenv("NOEMA_LOG_JSON", "false").lower() == "true",
+        log_to_file=os.getenv("NOEMA_LOG_TO_FILE", "false").lower() == "true",
+        enable_request_id=True,
+        redact_secrets=True,
     )
 
     logger.info("noema_starting", version="2.0.0", pairs=settings.trading.pairs)
+
+    # ── Phase 6: Validate configuration before startup ───────────────
+    if not args.no_validate:
+        mode = "development" if args.dry_run else "production"
+        result = validate_config(settings, env_file=".env", mode=mode)
+        if not result.is_valid:
+            # Print formatted errors to stderr for visibility
+            print(format_validation_errors(result), file=sys.stderr)
+            logger.critical("startup_aborted", reason="config_validation_failed")
+            sys.exit(1)
+        if result.warnings:
+            for w in result.warnings:
+                logger.warning("config_warning", field=w.field, message=w.message)
+        logger.info("config_validation_passed")
 
     # ── MT5 Lifecycle ───────────────────────────────────────────────
     if args.mt5_auto:
@@ -480,30 +512,36 @@ async def main() -> None:
     # Create orchestrator + services
     orch, services = await create_orchestrator(settings)
 
+    # ── Phase 6: Graceful Shutdown Manager ───────────────────────────
+    shutdown_config = load_shutdown_config_from_env()
+    shutdown_mgr = ShutdownManager(
+        orchestrator=orch,
+        companion=services,
+        broker=orch.broker if hasattr(orch, "broker") else None,
+        health_checker=HealthChecker(),
+        metrics_collector=MetricsCollector(enabled=True),
+        trade_store=getattr(orch, "_trade_store", None),
+        config=shutdown_config,
+    )
+    shutdown_mgr.register_signal_handlers()
+
     # Start companion services (Telegram, journal, reflector)
     await services.start()
-
-    # Handle shutdown signals
-    shutdown_event = asyncio.Event()
-
-    def _signal_handler(sig, _frame):
-        logger.info("shutdown_signal_received", signal=sig)
-        shutdown_event.set()
-
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
 
     # Start orchestrator
     await orch.start(interval=args.interval)
 
-    # Wait for shutdown
-    await shutdown_event.wait()
+    # ── Wait for graceful shutdown ───────────────────────────────────
+    exit_code = await shutdown_mgr.wait_for_shutdown()
 
-    # Graceful shutdown
-    logger.info("noema_shutting_down")
-    await orch.stop()
-    await services.stop()
-    logger.info("noema_stopped")
+    # Perform final cleanup if shutdown wasn't already triggered
+    if not shutdown_mgr.state.initiated:
+        logger.info("noema_shutting_down")
+        await orch.stop()
+        await services.stop()
+
+    logger.info("noema_stopped", exit_code=exit_code)
+    shutdown_mgr.exit(exit_code)
 
 
 if __name__ == "__main__":

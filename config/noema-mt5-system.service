@@ -1,0 +1,122 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Noema MT5 Headless Service (systemd) — System-Level
+#
+# This is the SYSTEM-LEVEL version for production deployment.
+# The original user-level version is at config/noema-mt5.service (user mode).
+#
+# Install:
+#   sudo cp config/noema-mt5-system.service /etc/systemd/system/noema-mt5.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable noema-mt5.service
+#   sudo systemctl start noema-mt5.service
+#   sudo systemctl status noema-mt5.service
+#
+# Check:
+#   sudo journalctl -u noema-mt5.service -f
+#   sudo journalctl -u noema-mt5.service --since "10 min ago"
+#
+# Prerequisites:
+#   1. Xvfb installed:        sudo apt install xvfb
+#   2. Wine installed:        sudo apt install wine
+#   3. MT5 installed:         Run MT5 setup under Wine once
+#   4. Config generated:      python -m noema.scripts.mt5_daemon generate-config
+#   5. Credentials in .env:   Noema_MT5_LOGIN, Noema_MT5_PASSWORD, Noema_MT5_SERVER
+#
+# Notes:
+#   - The noema.service (main trading system) depends on this service
+#   - MT5 requires a virtual display (Xvfb on :99)
+#   - Startup can take 180+ seconds (Wine + MT5 load time)
+#   - User-level alternative (for desktop/testing):
+#     cp config/noema-mt5.service ~/.config/systemd/user/
+#     systemctl --user enable --now noema-mt5.service
+# ═══════════════════════════════════════════════════════════════════════
+
+[Unit]
+Description=Noema MetaTrader 5 Headless Bridge
+Documentation=https://github.com/Valentinus295/noema
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+
+# ── User ─────────────────────────────────────────────────────────────
+User=noema
+Group=noema
+
+# ── Environment ──────────────────────────────────────────────────────
+Environment=DISPLAY=:99
+Environment=WINEARCH=win64
+Environment=WINEPREFIX=/home/noema/.wine
+Environment=WINEDLLOVERRIDES=mscoree=d
+EnvironmentFile=-/opt/noema/.env
+
+# ── Pre-start ────────────────────────────────────────────────────────
+# Create required directories
+ExecStartPre=-/bin/mkdir -p /home/noema/.noema
+ExecStartPre=-/bin/mkdir -p /run/noema-mt5
+
+# Start Xvfb on display :99 (virtual framebuffer for headless MT5)
+# Only starts if Xvfb isn't already running
+ExecStartPre=-/usr/bin/pkill -f "Xvfb :99" 2>/dev/null; /usr/bin/sleep 1
+ExecStartPre=/usr/bin/Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render &
+
+# Generate MT5 config if it doesn't exist
+ExecStartPre=/opt/noema/venv/bin/python -c "
+import os, sys
+sys.path.insert(0, '/opt/noema')
+os.chdir('/opt/noema')
+from noema.scripts.mt5_daemon import load_credentials_from_env, generate_config
+login, password, server = load_credentials_from_env()
+generate_config(login, password, server)
+print('MT5 config generated OK')
+"
+
+# ── Main ─────────────────────────────────────────────────────────────
+# Start MT5 under Wine with xvfb-run
+ExecStart=/usr/bin/xvfb-run -a \
+    -s "-screen 0 1024x768x24 -ac +extension GLX +render" \
+    /usr/bin/wine \
+    "C:\\Program Files\\MetaTrader 5\\terminal64.exe" \
+    /portable \
+    /config:C:\\users\\noema\\.noema\\mt5-config.ini
+
+# ── Stop ─────────────────────────────────────────────────────────────
+# Kill Wine server (clean MT5 shutdown)
+ExecStop=/usr/bin/wineserver -k
+ExecStopPost=-/usr/bin/pkill -f "Xvfb :99"
+ExecStopPost=-/bin/rm -f /run/noema-mt5/mt5-daemon.pid
+
+# ── Restart Policy ───────────────────────────────────────────────────
+Restart=on-failure
+RestartSec=15
+StartLimitBurst=3
+StartLimitInterval=600
+
+# ── Timeouts (MT5/Wine startup is slow) ──────────────────────────────
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+# ── Security Hardening ───────────────────────────────────────────────
+NoNewPrivileges=no            # Wine needs some privileges
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/noema/.noema /home/noema/.wine /run/noema-mt5 /tmp
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=yes
+UMask=027
+
+# ── Resource Limits ──────────────────────────────────────────────────
+LimitNOFILE=65536
+MemoryMax=4G
+
+# ── Logging ──────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=noema-mt5
+
+[Install]
+WantedBy=multi-user.target
