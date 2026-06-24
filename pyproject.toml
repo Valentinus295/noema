@@ -1,6 +1,6 @@
 [project]
 name = "noema"
-version = "0.1.0"
+version = "0.2.0"
 description = "Noema — Multi-agent quantitative forex trading platform. Institutional-grade pipeline: SMC, econometrics, Kalman-HMM, LLM-augmented analysis."
 authors = [
     { name = "Valentine Owuor", email = "ovalentine964@example.com" }

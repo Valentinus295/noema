@@ -9,7 +9,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![Tests](https://img.shields.io/badge/tests-84%2F84-brightgreen)](./noema/tests)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](./LICENSE)
-[![Phase](https://img.shields.io/badge/phase-1%20complete-8A2BE2)](./docs/PHASE1_DEPLOYMENT.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](./CHANGELOG.md)
+[![Phase](https://img.shields.io/badge/phase-6%20complete-8A2BE2)](./docs/ROADMAP.md)
 
 ---
 
@@ -233,7 +234,7 @@ See [docs/CURRICULUM_MAPPING.md](./docs/CURRICULUM_MAPPING.md) for the complete 
 
 ## Roadmap
 
-### Now — v0.1 (Phase 1 Complete ✅)
+### Now — v0.2.0 (Phases 1-6 Complete ✅)
 - [x] Statistics module (8 files, ~3,000 lines)
 - [x] Econometrics module (6 files, ~3,200 lines)
 - [x] 26-agent actor-critic architecture with debate engine
@@ -269,9 +270,9 @@ See [docs/CURRICULUM_MAPPING.md](./docs/CURRICULUM_MAPPING.md) for the complete 
 
 ---
 
-## Phase 1 Modules (Deployed)
+## Modules (Deployed)
 
-The following modules are operational and verified as of Phase 1 completion (2026-06-23):
+The following modules are operational and verified as of v0.2.0 (2026-06-24):
 
 | Module | Files | Lines | Key Techniques |
 |--------|-------|-------|---------------|

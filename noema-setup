@@ -47,7 +47,7 @@ fi
 
 # ── Self-repair: fix pyproject.toml if [project.urls] before deps ──
 if [ -f pyproject.toml ] && grep -q "^\[project\.urls\]" pyproject.toml; then
-    if head -50 pyproject.toml | awk '/\[project\.urls\]/{found=1} /^dependencies =/{if(found){print "broken"; exit}}' | grep -q broken; then
+    if awk '/\[project\.urls\]/{found=1} /^dependencies =/{if(found){print "broken"; exit}}' pyproject.toml | grep -q broken; then
         echo ""
         echo -e "  ${YELLOW}Repairing pyproject.toml structure...${NC}"
         python3 -c "
@@ -142,14 +142,40 @@ prompt_choice() {
 banner
 
 # Paths for Pop!_OS / Ubuntu
-WINE_MT5_PATH="$HOME/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe"
+# Auto-detect MT5 path — search common Wine locations
+WINE_MT5_PATH=""
+for candidate in \
+    "$HOME/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe" \
+    "$HOME/.wine/drive_c/Program Files (x86)/MetaTrader 5/terminal64.exe" \
+    "$HOME/.wine/drive_c/FxPesa/terminal64.exe" \
+    "$HOME/.wine/drive_c/FBS/terminal64.exe"; do
+    if [ -f "$candidate" ]; then
+        WINE_MT5_PATH="$candidate"
+        break
+    fi
+done
+if [ -z "$WINE_MT5_PATH" ]; then
+    WINE_MT5_PATH="$HOME/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe"
+fi
 
 # ── Step 0: Prerequisites Check ───────────────────────────────
 section "Step 0: Checking prerequisites"
 
 OS="$(uname -s)"
 echo -e "  ${BOLD}System:${NC} $(uname -s) $(uname -m)"
+PYTHON_VER=$(python3 --version 2>&1 | grep -oP '\d+\.\d+' | head -1)
 echo -e "  ${BOLD}Python:${NC} $(python3 --version 2>&1)"
+if [ -n "$PYTHON_VER" ] && [ "$(echo "$PYTHON_VER >= 3.11" | bc -l 2>/dev/null || echo 0)" = "1" ] 2>/dev/null; then
+    success "Python version $PYTHON_VER >= 3.11 — OK"
+elif python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" 2>/dev/null; then
+    success "Python version >= 3.11 — OK"
+else
+    fail "Python 3.11+ REQUIRED — found $(python3 --version 2>&1)"
+    echo -e "  ${YELLOW}Install Python 3.11+:${NC}"
+    echo -e "  Ubuntu 22.04: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11 python3.11-venv"
+    echo -e "  Ubuntu 24.04+: sudo apt install python3.11 python3.11-venv"
+    exit 1
+fi
 echo ""
 if [ "$OS" = "Linux" ]; then
     echo -e "  ${GREEN}✓${NC} Linux — Wine + mt5linux for MT5"
@@ -196,6 +222,23 @@ if [ "$NEED_WINE" = "true" ]; then
     fi
 fi
 check_cmd pip3 2>/dev/null || check_cmd uv
+
+# ── Step 0.5: System dependencies (CRITICAL for builds) ────────
+if [ "$OS" = "Linux" ]; then
+    section "Step 0.5: System build dependencies"
+    info "Installing build tools and libraries..."
+    sudo apt-get update -qq 2>/dev/null
+    sudo apt-get install -y -qq build-essential cmake pkg-config python3-venv \
+        libssl-dev libffi-dev libta-lib-dev curl 2>&1 | tail -3
+    if command -v cmake &> /dev/null; then
+        success "Build tools installed (gcc, cmake, pkg-config)"
+    fi
+    if ldconfig -p 2>/dev/null | grep -q libta_lib; then
+        success "TA-Lib C library available"
+    else
+        warn "TA-Lib C library may not be installed — pip TA-Lib will fail if missing"
+    fi
+fi
 check_cmd cargo 2>/dev/null || true  # Rust optional at first
 check_cmd node   2>/dev/null || true  # Node optional at first
 
@@ -204,7 +247,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo -e "${RED}${BOLD}Missing prerequisites:${NC}"
     for m in "${MISSING[@]}"; do
         case "$m" in
-            python3) echo "  python3 → install from https://python.org or 'apt install python3.11'" ;;
+            python3) echo "  python3 → Ubuntu 22.04: ppa:deadsnakes/ppa + apt install python3.11" ; echo "             Ubuntu 24.04: apt install python3.11" ;;
             cargo)   echo "  cargo   → install from https://rustup.rs" ;;
             node)    echo "  node    → install from https://nodejs.org (LTS)" ;;
             xvfb-run) echo "  xvfb-run → 'sudo apt install xvfb' (headless MT5)" ;;
@@ -494,12 +537,15 @@ prompt_choice \
     "→ DEBUG for development, INFO for production"
 
 # ── Finalize .env ─────────────────────────────────────────────
+POSTGRES_PW=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))" 2>/dev/null || echo "change-me-postgres")
+REDIS_PW=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))" 2>/dev/null || echo "change-me-redis")
+GRAFANA_PW=$(python3 -c "import secrets; print(secrets.token_urlsafe(18))" 2>/dev/null || echo "change-me-grafana")
 cat >> .env << FOOTER
 
 # ── Docker Compose Environment (auto-generated secure passwords) ──
-POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))" 2>/dev/null || echo "generate-with-python3")
-REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))" 2>/dev/null || echo "generate-with-python3")
-GRAFANA_ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(18))" 2>/dev/null || echo "generate-with-python3")
+POSTGRES_PASSWORD=${POSTGRES_PW}
+REDIS_PASSWORD=${REDIS_PW}
+GRAFANA_PASSWORD=${GRAFANA_PW}
 FOOTER
 
 success ".env file created with $(wc -l < .env) lines"
@@ -536,6 +582,7 @@ if command -v cargo &> /dev/null; then
         success "Rust crates compiled (noema-data, noema-backtest, noema-smc)"
     else
         warn "Rust build had issues — Python fallbacks will be used"
+        info "Ensure build-essential and cmake are installed: sudo apt install build-essential cmake"
     fi
     unset RUSTFLAGS
     cd ..
@@ -551,7 +598,12 @@ if command -v node &> /dev/null && command -v npm &> /dev/null; then
     info "Installing dashboard dependencies..."
     cd dashboard
     npm install --silent 2>&1 | tail -1
-    success "Dashboard dependencies installed"
+    NPM_EXIT=${PIPESTATUS[0]}
+    if [ "$NPM_EXIT" = "0" ]; then
+        success "Dashboard dependencies installed"
+    else
+        warn "Dashboard npm install had issues (exit $NPM_EXIT) — frontend may not start"
+    fi
     info "Start dashboard: cd dashboard && npm run dev"
     cd ..
 else
@@ -564,7 +616,7 @@ section "Step 7: Docker services"
 
 DOCKER_READY=false
 
-if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+if command -v docker &> /dev/null && (docker compose version &> /dev/null || command -v docker-compose &> /dev/null); then
     DOCKER_READY=true
 elif [ "$OS" = "Linux" ]; then
     warn "Docker not found"
@@ -578,13 +630,28 @@ elif [ "$OS" = "Linux" ]; then
         for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
             sudo apt-get remove -y "$pkg" 2>/dev/null || true
         done
+        # Pop!_OS: map version_id to Ubuntu codename (Docker repo uses Ubuntu codenames)
+        DOCKER_CODENAME=""
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            if echo "$ID" | grep -qi pop; then
+                case "$VERSION_ID" in
+                    22.04) DOCKER_CODENAME="jammy" ;;
+                    24.04) DOCKER_CODENAME="noble" ;;
+                    *) DOCKER_CODENAME="noble" ;;  # default to noble
+                esac
+            else
+                DOCKER_CODENAME="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+            fi
+        fi
+        DOCKER_CODENAME="${DOCKER_CODENAME:-noble}"
         # Docker's official GPG key + repo
         sudo apt-get update -qq 2>/dev/null
         sudo apt-get install -y -qq ca-certificates curl 2>/dev/null
         sudo install -m 0755 -d /etc/apt/keyrings 2>/dev/null
         sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc 2>/dev/null
         sudo chmod a+r /etc/apt/keyrings/docker.asc
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${DOCKER_CODENAME} stable" | \
             sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
         sudo apt-get update -qq 2>/dev/null
         sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>&1 | tail -3
@@ -594,7 +661,13 @@ elif [ "$OS" = "Linux" ]; then
         # Start Docker
         sudo systemctl enable docker 2>/dev/null || true
         sudo systemctl start docker 2>/dev/null || true
-        if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+        # Verify Docker Compose is available before verification check
+    DOCKER_CHECK=false
+    if command -v docker &> /dev/null; then
+        docker compose version &> /dev/null && DOCKER_CHECK=true
+        command -v docker-compose &> /dev/null && DOCKER_CHECK=true
+    fi
+    if [ "$DOCKER_CHECK" = "true" ]; then
             success "Docker installed — PostgreSQL, Redis, Prometheus, Grafana available"
             DOCKER_READY=true
         else
@@ -612,7 +685,12 @@ fi
 
 if [ "$DOCKER_READY" = true ]; then
     info "Starting PostgreSQL + Redis..."
-    if docker compose up -d postgres redis 2>&1 | tail -3; then
+    if docker compose up -d postgres redis 2>&1; then
+        DOCKER_EXIT=0
+    else
+        DOCKER_EXIT=$?
+    fi
+    if [ "$DOCKER_EXIT" = "0" ]; then
         success "PostgreSQL + Redis running on localhost"
 
         # Optional: start Prometheus + Grafana
@@ -1043,6 +1121,13 @@ echo ""
 
 DASHBOARD_PORT=3000
 API_PORT=8000
+
+if [ -f dashboard/server/requirements.txt ]; then
+    info "Installing dashboard API dependencies..."
+    source .venv/bin/activate 2>/dev/null || true
+    pip install -r dashboard/server/requirements.txt 2>&1 | tail -1
+    success "Dashboard API dependencies installed"
+fi
 
 # Start backend server
 if [ -f dashboard/server/api.py ]; then
