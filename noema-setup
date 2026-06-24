@@ -172,8 +172,19 @@ elif python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" 2
 else
     fail "Python 3.11+ REQUIRED — found $(python3 --version 2>&1)"
     echo -e "  ${YELLOW}Install Python 3.11+:${NC}"
-    echo -e "  Ubuntu 22.04: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11 python3.11-venv"
-    echo -e "  Ubuntu 24.04+: sudo apt install python3.11 python3.11-venv"
+    if [ "$OS" = "Linux" ]; then
+        echo -e "  Ubuntu 22.04: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11 python3.11-venv"
+        echo -e "  Ubuntu 24.04+: sudo apt install python3.11 python3.11-venv"
+    elif [ "$OS" = "Darwin" ]; then
+        echo -e "  brew install python@3.12"
+        echo -e "  OR download from: https://www.python.org/downloads/"
+    elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+        echo -e "  Download from: https://www.python.org/downloads/"
+        echo -e "  OR from Microsoft Store: search 'Python 3.12'"
+        echo -e "  ${YELLOW}⚠️  Check 'Add Python to PATH' during installation!${NC}"
+    else
+        echo -e "  Download from: https://www.python.org/downloads/"
+    fi
     exit 1
 fi
 echo ""
@@ -223,9 +234,31 @@ if [ "$NEED_WINE" = "true" ]; then
 fi
 check_cmd pip3 2>/dev/null || check_cmd uv
 
+# ── Cross-platform venv activation helper ──
+# On macOS/Linux:  .venv/bin/activate
+# On Windows Git Bash: .venv/Scripts/activate
+activate_venv() {
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate 2>/dev/null || true
+    elif [ -f ".venv/Scripts/activate" ]; then
+        source .venv/Scripts/activate 2>/dev/null || true
+    fi
+}
+
+# ── Detect WSL (Windows Subsystem for Linux) ──
+IS_WSL=false
+if [ "$OS" = "Linux" ] && grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL=true
+    echo -e "  ${CYAN}→${NC} WSL detected — using Linux package management"
+fi
+
 # ── Step 0.5: System dependencies (CRITICAL for builds) ────────
+section "Step 0.5: System build dependencies"
+
 if [ "$OS" = "Linux" ]; then
-    section "Step 0.5: System build dependencies"
+    # ═══════════════════════════════════════════════════════════
+    # LINUX (Ubuntu / Pop!_OS / Debian / WSL)
+    # ═══════════════════════════════════════════════════════════
 
     # Update package list once (shared across all installs)
     sudo apt-get update -qq 2>/dev/null
@@ -278,6 +311,129 @@ if [ "$OS" = "Linux" ]; then
             info "Manual fix: https://github.com/TA-Lib/ta-lib#build-from-source"
         fi
     fi
+
+elif [ "$OS" = "Darwin" ]; then
+    # ═══════════════════════════════════════════════════════════
+    # macOS
+    # ═══════════════════════════════════════════════════════════
+
+    # ── Homebrew check ──
+    if ! command -v brew &> /dev/null; then
+        fail "Homebrew not found — REQUIRED for macOS dependency management"
+        echo ""
+        echo -e "  ${YELLOW}Install Homebrew (one command):${NC}"
+        echo -e "  ${CYAN}/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${NC}"
+        echo -e "  ${YELLOW}After installing Homebrew, re-run this script.${NC}"
+        echo ""
+        exit 1
+    fi
+    success "Homebrew found"
+
+    # ── Xcode CLI tools ──
+    if xcode-select -p &> /dev/null; then
+        success "Xcode CLI tools installed"
+    else
+        warn "Xcode CLI tools not found — installing now..."
+        info "This may open a GUI dialog — click 'Install' and wait for completion"
+        xcode-select --install 2>/dev/null || true
+        echo -e "  ${YELLOW}After Xcode CLI tools finish installing, re-run this script.${NC}"
+        exit 1
+    fi
+
+    # ── Build tools via Homebrew ──
+    # macOS ships with clang/gcc via Xcode — no build-essential needed
+    info "Checking build dependencies..."
+    BREW_DEPS=()
+    command -v cmake &> /dev/null || BREW_DEPS+=(cmake)
+    command -v pkg-config &> /dev/null || BREW_DEPS+=(pkg-config)
+    command -v wget &> /dev/null || BREW_DEPS+=(wget)
+
+    if [ ${#BREW_DEPS[@]} -gt 0 ]; then
+        info "Installing via Homebrew: ${BREW_DEPS[*]}"
+        brew install "${BREW_DEPS[@]}" 2>&1 | tail -5
+        success "Build tools installed via Homebrew"
+    else
+        success "Build tools already present"
+    fi
+
+    # ── TA-Lib via Homebrew ──
+    if [ -f /opt/homebrew/lib/libta_lib.dylib ] || [ -f /usr/local/lib/libta_lib.dylib ] || [ -f /opt/homebrew/opt/ta-lib/lib/libta_lib.dylib ]; then
+        success "TA-Lib C library already installed (skipping)"
+    else
+        info "Installing TA-Lib via Homebrew..."
+        if brew install ta-lib 2>&1 | tail -5; then
+            success "TA-Lib installed via Homebrew"
+        else
+            warn "TA-Lib Homebrew install failed"
+            info "Manual fix: brew install ta-lib"
+            info "Fallback: build from source — https://github.com/TA-Lib/ta-lib#build-from-source"
+        fi
+    fi
+
+elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    # ═══════════════════════════════════════════════════════════
+    # WINDOWS (Git Bash / MSYS2 / Cygwin)
+    # ═══════════════════════════════════════════════════════════
+
+    info "Windows detected (Git Bash / MSYS2 environment)"
+    info "Skipping apt-based system deps — Windows uses pre-built wheels and native installers"
+
+    # ── Python check ──
+    PYTHON_CMD=""
+    if command -v python3 &> /dev/null; then
+        PYTHON_CMD="python3"
+        success "python3 found: $(python3 --version 2>&1)"
+    elif command -v python &> /dev/null; then
+        PYTHON_CMD="python"
+        success "python found: $(python --version 2>&1)"
+    else
+        fail "Python not found in PATH"
+        echo ""
+        echo -e "  ${YELLOW}Install Python 3.11+ from:${NC}"
+        echo -e "  ${CYAN}https://www.python.org/downloads/${NC}"
+        echo -e "  ${YELLOW}OR from Microsoft Store: search 'Python 3.12'${NC}"
+        echo -e "  ${YELLOW}⚠️  IMPORTANT: Check 'Add Python to PATH' during installation!${NC}"
+        echo ""
+        exit 1
+    fi
+
+    # ── Cargo/Rust check ──
+    if command -v cargo &> /dev/null; then
+        success "cargo found: $(cargo --version 2>&1)"
+    else
+        warn "cargo not found — Rust crates will use Python fallbacks"
+        info "Install from: https://rustup.rs"
+    fi
+
+    # ── TA-Lib via pip wheel (Christoph Gohlke pre-built binaries on PyPI for Windows) ──
+    # Windows TA-Lib binaries available directly on PyPI — no C source build needed
+    if python3 -c "import talib" 2>/dev/null; then
+        success "TA-Lib Python package already installed"
+    else
+        info "Installing TA-Lib via pip (pre-built Windows wheel from PyPI)..."
+        if pip install TA-Lib 2>&1 | tail -3; then
+            success "TA-Lib installed from PyPI wheel"
+        else
+            warn "TA-Lib pip install failed — trying with --only-binary"
+            if pip install --only-binary :all: TA-Lib 2>&1 | tail -3; then
+                success "TA-Lib installed (binary wheel)"
+            else
+                warn "TA-Lib could not be installed from PyPI"
+                info "Manual fix: download wheel from https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib"
+                info "Then: pip install TA_Lib-0.6.7-cp311-cp311-win_amd64.whl (match your Python version)"
+            fi
+        fi
+    fi
+
+else
+    # ═══════════════════════════════════════════════════════════
+    # Unknown / Other OS
+    # ═══════════════════════════════════════════════════════════
+    warn "Unrecognized OS: $OS — skipping system dependencies"
+    info "You may need to install manually:"
+    info "  • C compiler (gcc/clang)"
+    info "  • cmake + pkg-config"
+    info "  • TA-Lib C library: https://github.com/TA-Lib/ta-lib"
 fi
 check_cmd cargo 2>/dev/null || true  # Rust optional at first
 check_cmd node   2>/dev/null || true  # Node optional at first
@@ -287,7 +443,17 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo -e "${RED}${BOLD}Missing prerequisites:${NC}"
     for m in "${MISSING[@]}"; do
         case "$m" in
-            python3) echo "  python3 → Ubuntu 22.04: ppa:deadsnakes/ppa + apt install python3.11" ; echo "             Ubuntu 24.04: apt install python3.11" ;;
+            python3)
+                echo "  python3 →"
+                if [ "$OS" = "Linux" ]; then
+                    echo "             Ubuntu 22.04: ppa:deadsnakes/ppa + apt install python3.11"
+                    echo "             Ubuntu 24.04: apt install python3.11"
+                elif [ "$OS" = "Darwin" ]; then
+                    echo "             brew install python@3.12"
+                else
+                    echo "             https://www.python.org/downloads/"
+                fi
+                ;;
             cargo)   echo "  cargo   → install from https://rustup.rs" ;;
             node)    echo "  node    → install from https://nodejs.org (LTS)" ;;
             xvfb-run) echo "  xvfb-run → 'sudo apt install xvfb' (headless MT5)" ;;
@@ -332,9 +498,21 @@ elif [ "$NEED_WINE" = "true" ] && [ -f "$WINE_MT5_PATH" ]; then
 elif [ "$NEED_WINE" = "true" ]; then
     success "Wine detected — install MT5: wine ~/Downloads/fxpesa5setup.exe"
 elif [ "$NEED_WINE" = "false" ] && echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
-    success "Windows — native MT5 available"
+    success "Windows — native MT5 available (no Wine needed)"
+    info "Download MT5 from your broker:"
+    info "  • FxPesa: https://www.fxpesa.com/"
+    info "  • FBS: https://fbs.com/"
+    info "  • Or any MT5 broker of your choice"
 elif [ "$OS" = "Darwin" ]; then
-    warn "macOS — paper trading only. MT5 not supported."
+    warn "macOS — MT5 desktop app is Windows-only"
+    echo ""
+    echo -e "  ${YELLOW}Options for MT5 on macOS:${NC}"
+    echo -e "    ${CYAN}•${NC} Paper trading — Noema's backtest and simulation modes work natively"
+    echo -e "    ${CYAN}•${NC} CrossOver Mac — run MT5 without a VM (paid, https://www.codeweavers.com/)"
+    echo -e "    ${CYAN}•${NC} Parallels / VMware — run Windows VM with MT5"
+    echo -e "    ${CYAN}•${NC} Remote VPS — run MT5 on a Linux VPS, Noema on macOS"
+    echo ""
+    echo -e "  ${CYAN}→${NC} Noema's analytics, backtesting, and paper trading all work on macOS."
 fi
 
 # ── Step 2:
@@ -356,14 +534,14 @@ if command -v uv &> /dev/null; then
     PKG_MGR="uv"
     info "Using uv (fast Python package manager)"
     uv venv .venv 2>/dev/null || true
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     uv sync
     success "Python dependencies installed via uv"
 else
     PKG_MGR="pip"
     info "Using pip"
     python3 -m venv .venv
-    source .venv/bin/activate
+    activate_venv
     pip install --upgrade pip
     # Install core deps + mt5linux (Linux only)
     pip install -e ".[dev]"
@@ -375,7 +553,7 @@ fi
 if [ "$NEED_WINE" = "true" ]; then
     section "Step 2.5: mt5linux Expert Advisor setup"
     info "Installing mt5linux bridge into MT5..."
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     # Try the Python command first, but don't fail if it errors
     python -m noema.scripts.mt5_daemon setup-mt5-ea 2>/dev/null || true
     # Direct fallback: find and copy mt5linux EA from pip package
@@ -730,9 +908,47 @@ elif [ "$OS" = "Linux" ]; then
         info "Skipping Docker — services must be run manually"
     fi
 elif [ "$OS" = "Darwin" ]; then
-    warn "Docker not found — install Docker Desktop: https://docs.docker.com/desktop/setup/install/mac-install/"
+    # ═══════════════════════════════════════════════════════════
+    # macOS Docker options
+    # ═══════════════════════════════════════════════════════════
+    warn "Docker not found"
+    info "Docker runs PostgreSQL, Redis, Prometheus & Grafana"
+    echo ""
+    echo -e "  ${YELLOW}macOS Docker options:${NC}"
+    echo -e "    ${CYAN}1${NC}) Docker Desktop (GUI, recommended for beginners)"
+    echo -e "         Download: https://docs.docker.com/desktop/setup/install/mac-install/"
+    echo -e "    ${CYAN}2${NC}) Colima (lightweight CLI alternative)"
+    echo -e "         brew install colima docker docker-compose"
+    echo -e "         colima start"
+    echo -e "    ${CYAN}3${NC}) OrbStack (fast, native macOS)"
+    echo -e "         brew install orbstack"
+    echo ""
+    echo -e "  ${YELLOW}Re-run this script after installing Docker.${NC}"
+
+elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    # ═══════════════════════════════════════════════════════════
+    # Windows Docker options
+    # ═══════════════════════════════════════════════════════════
+    warn "Docker not found"
+    info "Docker runs PostgreSQL, Redis, Prometheus & Grafana"
+    echo ""
+    echo -e "  ${YELLOW}Windows Docker options:${NC}"
+    echo -e "    ${CYAN}1${NC}) Docker Desktop for Windows"
+    echo -e "         Download: https://docs.docker.com/desktop/setup/install/windows-install/"
+    echo -e "         ⚠️  Enable WSL 2 backend during installation for best performance"
+    echo -e "    ${CYAN}2${NC}) If using WSL: run this script inside WSL for native Docker support"
+    echo ""
+    if [ "$IS_WSL" = "true" ]; then
+        echo -e "  ${CYAN}→${NC} WSL detected — Docker Desktop with WSL 2 backend recommended"
+        echo -e "  ${CYAN}→${NC} Ensure 'Use WSL 2 based engine' is enabled in Docker Desktop settings"
+    fi
+    echo ""
+    echo -e "  ${YELLOW}Re-run this script after installing Docker.${NC}"
+
 else
-    warn "Docker not found — install manually: https://docs.docker.com/engine/install/"
+    warn "Docker not found"
+    info "Install Docker Engine: https://docs.docker.com/engine/install/"
+    echo -e "  ${YELLOW}Re-run this script after installing Docker.${NC}"
 fi
 
 if [ "$DOCKER_READY" = true ]; then
@@ -777,7 +993,7 @@ if [ "$NEED_WINE" = "true" ]; then
     fi
 
     # 2. Check mt5linux Python package
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     if python -c "import mt5linux" 2>/dev/null; then
         success "mt5linux Python package: IMPORT OK"
     else
@@ -821,60 +1037,86 @@ if [ "$NEED_WINE" = "true" ]; then
         echo -e "  ${RED}${BOLD}══ MT5 Connection: SOME CHECKS FAILED ❌ ══${NC}"
         echo -e "  ${YELLOW}See fix instructions above. Run 'noema setup-mt5-ea' to reinstall the bridge.${NC}"
     fi
-elif [ -f noema/scripts/start_mt5.py ] && echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
-    info "Windows — native MT5 available, no Wine bridge needed"
+elif [ "$OS" = "Darwin" ]; then
+    info "macOS — paper trading active; MT5 bridge not available on this platform"
+    info "See Step 1 for MT5 options on macOS (CrossOver, VPS, Parallels)"
+elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    info "Windows — native MT5 available; no Wine bridge needed"
+    info "Ensure MT5 is installed and logged in before running Noema"
 else
-    warn "Not on Linux — skipping MT5 bridge check"
+    warn "Unknown OS ($OS) — skipping MT5 bridge check"
 fi
 
 # ── Step 8.5: MetaTrader 5 Auto-Start ─────────────────────────
 section "Step 8.5: MetaTrader 5 Auto-Start"
 
-echo ""
-echo -e "  ${YELLOW}${BOLD}Would you like MT5 to start automatically in the background?${NC}"
-echo -e "    ${CYAN}1${NC}) Yes — headless (no window, recommended)"
-echo -e "    ${CYAN}2${NC}) Yes — with window (for monitoring)"
-echo -e "    ${CYAN}3${NC}) No — I'll start MT5 manually"
-read -r -p "  Choose [1-3]: " MT5_AUTO_CHOICE < /dev/tty
+if [ "$NEED_WINE" = "true" ]; then
+    # ═══════════════════════════════════════════════════════════
+    # Linux: Wine-based MT5 with headless option
+    # ═══════════════════════════════════════════════════════════
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Would you like MT5 to start automatically in the background?${NC}"
+    echo -e "    ${CYAN}1${NC}) Yes — headless (no window, recommended)"
+    echo -e "    ${CYAN}2${NC}) Yes — with window (for monitoring)"
+    echo -e "    ${CYAN}3${NC}) No — I'll start MT5 manually"
+    read -r -p "  Choose [1-3]: " MT5_AUTO_CHOICE < /dev/tty
 
-case "$MT5_AUTO_CHOICE" in
-    1)
-        HEADLESS=true
-        echo "Noema_MT5_HEADLESS=true" >> .env
-        echo "Noema_MT5_STARTUP_WAIT=120" >> .env
-        # Load .env so mt5_daemon can find credentials
-        set -a; source .env 2>/dev/null; set +a
-        echo ""
-        echo -e "  → Starting MT5 headless..."
-        source .venv/bin/activate 2>/dev/null || true
-        if python3 -m noema.scripts.mt5_daemon start 2>/dev/null; then
-            success "MT5 running in background — Noema will auto-connect"
-        else
-            warn "MT5 headless start had issues — check xvfb-run: sudo apt install xvfb"
-            info "You can start MT5 manually later: python -m noema.scripts.mt5_daemon start"
-        fi
-        ;;
-    2)
-        echo "Noema_MT5_HEADLESS=false" >> .env
-        echo "Noema_MT5_STARTUP_WAIT=120" >> .env
-        # Load .env so mt5_daemon can find credentials
-        set -a; source .env 2>/dev/null; set +a
-        echo ""
-        echo -e "  → Starting MT5 with window..."
-        source .venv/bin/activate 2>/dev/null || true
-        if python3 -m noema.scripts.mt5_daemon start --visible 2>/dev/null; then
-            success "MT5 started with window — Noema will connect when ready"
-        else
-            warn "MT5 window start had issues — start manually with wine"
-        fi
-        ;;
-    3)
-        echo "Noema_MT5_HEADLESS=false" >> .env
-        echo ""
-        info "MT5 manual start. Run before trading:"
-        info "  python -m noema.scripts.mt5_daemon start"
-        ;;
-esac
+    case "$MT5_AUTO_CHOICE" in
+        1)
+            HEADLESS=true
+            echo "Noema_MT5_HEADLESS=true" >> .env
+            echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+            set -a; source .env 2>/dev/null; set +a
+            echo ""
+            echo -e "  → Starting MT5 headless..."
+            activate_venv
+            if python3 -m noema.scripts.mt5_daemon start 2>/dev/null; then
+                success "MT5 running in background — Noema will auto-connect"
+            else
+                warn "MT5 headless start had issues — check xvfb-run: sudo apt install xvfb"
+                info "You can start MT5 manually later: python -m noema.scripts.mt5_daemon start"
+            fi
+            ;;
+        2)
+            echo "Noema_MT5_HEADLESS=false" >> .env
+            echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+            set -a; source .env 2>/dev/null; set +a
+            echo ""
+            echo -e "  → Starting MT5 with window..."
+            activate_venv
+            if python3 -m noema.scripts.mt5_daemon start --visible 2>/dev/null; then
+                success "MT5 started with window — Noema will connect when ready"
+            else
+                warn "MT5 window start had issues — start manually with wine"
+            fi
+            ;;
+        3)
+            echo "Noema_MT5_HEADLESS=false" >> .env
+            echo ""
+            info "MT5 manual start. Run before trading:"
+            info "  python -m noema.scripts.mt5_daemon start"
+            ;;
+    esac
+
+elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    # ═══════════════════════════════════════════════════════════
+    # Windows: native MT5 — start it manually before Noema
+    # ═══════════════════════════════════════════════════════════
+    echo ""
+    echo -e "  ${CYAN}→${NC} Windows — MT5 must be started manually before running Noema"
+    echo -e "  ${CYAN}→${NC} Launch MT5 from your Start Menu or Desktop shortcut"
+    echo -e "  ${CYAN}→${NC} Ensure you are logged into your trading account"
+    echo "Noema_MT5_HEADLESS=false" >> .env
+
+else
+    # ═══════════════════════════════════════════════════════════
+    # macOS / Other: no MT5 auto-start
+    # ═══════════════════════════════════════════════════════════
+    echo ""
+    echo -e "  ${CYAN}→${NC} MT5 auto-start not available on this platform"
+    echo -e "  ${CYAN}→${NC} Paper trading and analytics are fully functional"
+    echo "Noema_MT5_HEADLESS=false" >> .env
+fi
 
 # ── Step 9: Quick validation ──────────────────────────────────
 section "Step 9: Quick validation"
@@ -918,7 +1160,7 @@ if [ "$NEED_WINE" = "true" ]; then
 fi
 
 # 2. Python packages import check
-source .venv/bin/activate 2>/dev/null || true
+activate_venv
 if python3 -c "import noema; print('OK')" 2>/dev/null; then
     echo -e "  ${GREEN}✓${NC} Python package 'noema' imports"
     VERIFY_PASS=$((VERIFY_PASS + 1))
@@ -1035,25 +1277,69 @@ fi
 echo ""
 echo -e "  ${BOLD}${CYAN}── How Noema connects to MT5 ──${NC}"
 echo ""
-echo -e "  ${CYAN}┌─────────────────────────────────────────┐${NC}"
-echo -e "  ${CYAN}│  Your Machine (Pop!_OS / Linux)         │${NC}"
-echo -e "  ${CYAN}│                                         │${NC}"
-echo -e "  ${CYAN}│  ┌──────────┐   RPyC (port 18812)       │${NC}"
-echo -e "  ${CYAN}│  │  Noema   │ ──────────────────────►  │${NC}"
-echo -e "  ${CYAN}│  │ (Python) │ ◄──────────────────────  │${NC}"
-echo -e "  ${CYAN}│  └──────────┘   mt5linux bridge        │${NC}"
-echo -e "  ${CYAN}│       │                                 │${NC}"
-echo -e "  ${CYAN}│       │  ┌──────────────────────┐       │${NC}"
-echo -e "  ${CYAN}│       └──│  MT5 Terminal (Wine)  │       │${NC}"
-echo -e "  ${CYAN}│          │  → Your Broker       │       │${NC}"
-echo -e "  ${CYAN}│          │  → Live Prices       │       │${NC}"
-echo -e "  ${CYAN}│          │  → Order Execution   │       │${NC}"
-echo -e "  ${CYAN}│          └──────────────────────┘       │${NC}"
-echo -e "  ${CYAN}│                                         │${NC}"
-echo -e "  ${CYAN}│  ┌──────────┐   WebSocket :3000         │${NC}"
-echo -e "  ${CYAN}│  │Dashboard │ ◄── real-time P&L ──►    │${NC}"
-echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
-echo -e "  ${CYAN}└─────────────────────────────────────────┘${NC}"
+
+if [ "$NEED_WINE" = "true" ]; then
+    # Linux / Wine architecture
+    echo -e "  ${CYAN}┌─────────────────────────────────────────┐${NC}"
+    echo -e "  ${CYAN}│  Your Machine (Linux + Wine)            │${NC}"
+    echo -e "  ${CYAN}│                                         │${NC}"
+    echo -e "  ${CYAN}│  ┌──────────┐   RPyC (port 18812)       │${NC}"
+    echo -e "  ${CYAN}│  │  Noema   │ ──────────────────────►  │${NC}"
+    echo -e "  ${CYAN}│  │ (Python) │ ◄──────────────────────  │${NC}"
+    echo -e "  ${CYAN}│  └──────────┘   mt5linux bridge        │${NC}"
+    echo -e "  ${CYAN}│       │                                 │${NC}"
+    echo -e "  ${CYAN}│       │  ┌──────────────────────┐       │${NC}"
+    echo -e "  ${CYAN}│       └──│  MT5 Terminal (Wine)  │       │${NC}"
+    echo -e "  ${CYAN}│          │  → Your Broker       │       │${NC}"
+    echo -e "  ${CYAN}│          │  → Live Prices       │       │${NC}"
+    echo -e "  ${CYAN}│          │  → Order Execution   │       │${NC}"
+    echo -e "  ${CYAN}│          └──────────────────────┘       │${NC}"
+    echo -e "  ${CYAN}│                                         │${NC}"
+    echo -e "  ${CYAN}│  ┌──────────┐   WebSocket :3000         │${NC}"
+    echo -e "  ${CYAN}│  │Dashboard │ ◄── real-time P&L ──►    │${NC}"
+    echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
+    echo -e "  ${CYAN}└─────────────────────────────────────────┘${NC}"
+elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+    # Windows native MT5 architecture
+    echo -e "  ${CYAN}┌─────────────────────────────────────────┐${NC}"
+    echo -e "  ${CYAN}│  Your Machine (Windows)                 │${NC}"
+    echo -e "  ${CYAN}│                                         │${NC}"
+    echo -e "  ${CYAN}│  ┌──────────┐   MetaTrader5 Python API  │${NC}"
+    echo -e "  ${CYAN}│  │  Noema   │ ──────────────────────►  │${NC}"
+    echo -e "  ${CYAN}│  │ (Python) │ ◄── native connection ──  │${NC}"
+    echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
+    echo -e "  ${CYAN}│       │                                 │${NC}"
+    echo -e "  ${CYAN}│       │  ┌──────────────────────┐       │${NC}"
+    echo -e "  ${CYAN}│       └──│  MT5 Terminal         │       │${NC}"
+    echo -e "  ${CYAN}│          │  (Windows native)     │       │${NC}"
+    echo -e "  ${CYAN}│          │  → Your Broker       │       │${NC}"
+    echo -e "  ${CYAN}│          │  → Live Prices       │       │${NC}"
+    echo -e "  ${CYAN}│          │  → Order Execution   │       │${NC}"
+    echo -e "  ${CYAN}│          └──────────────────────┘       │${NC}"
+    echo -e "  ${CYAN}│                                         │${NC}"
+    echo -e "  ${CYAN}│  ┌──────────┐   WebSocket :3000         │${NC}"
+    echo -e "  ${CYAN}│  │Dashboard │ ◄── real-time P&L ──►    │${NC}"
+    echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
+    echo -e "  ${CYAN}└─────────────────────────────────────────┘${NC}"
+else
+    # macOS / other — paper trading
+    echo -e "  ${CYAN}┌─────────────────────────────────────────┐${NC}"
+    if [ "$OS" = "Darwin" ]; then
+        echo -e "  ${CYAN}│  Your Machine (macOS)                   │${NC}"
+    else
+        echo -e "  ${CYAN}│  Your Machine                           │${NC}"
+    fi
+    echo -e "  ${CYAN}│                                         │${NC}"
+    echo -e "  ${CYAN}│  ┌──────────┐                           │${NC}"
+    echo -e "  ${CYAN}│  │  Noema   │  Paper Trading + Backtest  │${NC}"
+    echo -e "  ${CYAN}│  │ (Python) │  Simulation Mode           │${NC}"
+    echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
+    echo -e "  ${CYAN}│                                         │${NC}"
+    echo -e "  ${CYAN}│  ┌──────────┐   WebSocket :3000         │${NC}"
+    echo -e "  ${CYAN}│  │Dashboard │ ◄── real-time P&L ──►    │${NC}"
+    echo -e "  ${CYAN}│  └──────────┘                           │${NC}"
+    echo -e "  ${CYAN}└─────────────────────────────────────────┘${NC}"
+fi
 echo ""
 # ── Noema CLI Installation ──────────────────────────────────
 NOEMA_BIN_DIR="$HOME/.local/bin"
@@ -1092,9 +1378,9 @@ fi
 
 cd "$NOEMA_ROOT"
 
-# Auto-activate venv if it exists — user NEVER needs to type 'source .venv/bin/activate'
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
+# Auto-activate venv if it exists — cross-platform (bin/activate on Unix, Scripts/activate on Windows)
+if [ -f ".venv/bin/activate" ] || [ -f ".venv/Scripts/activate" ]; then
+    activate_venv
 fi
 
 # Run the CLI
@@ -1126,7 +1412,7 @@ fi
 
 # Also install via pip if editable install was done
 if [ -f "pyproject.toml" ] && [ -d ".venv" ]; then
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     pip install -e . 2>&1 | tail -1 || true
     success "Python package installed (editable)"
 fi
@@ -1176,7 +1462,7 @@ API_PORT=8000
 
 if [ -f dashboard/server/requirements.txt ]; then
     info "Installing dashboard API dependencies..."
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     pip install -r dashboard/server/requirements.txt 2>&1 | tail -1
     success "Dashboard API dependencies installed"
 fi
@@ -1184,7 +1470,7 @@ fi
 # Start backend server
 if [ -f dashboard/server/api.py ]; then
     info "Starting dashboard API server on port $API_PORT..."
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     cd dashboard
     python server/api.py &
     API_PID=$!
@@ -1226,7 +1512,7 @@ if curl -s "$DASH_URL" > /dev/null 2>&1; then
 
     # Strategy 1: Python webbrowser module (cross-platform, most reliable)
     OPEN_OK=false
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     if python3 -c "import webbrowser; webbrowser.open('$DASH_URL')" 2>/dev/null; then
         success "Dashboard opened → $DASH_URL"
         OPEN_OK=true
@@ -1296,6 +1582,6 @@ if [ "${LAUNCH,,}" = "y" ] || [ "${LAUNCH,,}" = "yes" ]; then
     echo ""
     echo -e "  ${GREEN}Starting Noema...${NC}"
     echo ""
-    source .venv/bin/activate 2>/dev/null || true
+    activate_venv
     exec python -m noema.cli start
 fi
