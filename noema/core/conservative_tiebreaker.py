@@ -257,3 +257,20 @@ def get_tiebreaker() -> ConservativeTiebreaker:
     if _tiebreaker_instance is None:
         _tiebreaker_instance = ConservativeTiebreaker()
     return _tiebreaker_instance
+
+@staticmethod
+def from_critic_votes(votes: list[str]) -> "TiebreakerDecision":
+    """Create a tiebreaker decision from critic team votes.
+    
+    Uses the ConservativeTiebreaker to determine the most conservative
+    outcome from the critic votes. This is the NON-LLM path.
+    """
+    from noema.core.conservative_tiebreaker import TiebreakerInput, ConservativeTiebreaker, Vote
+    
+    vote_map = {v: 1 for v in votes}
+    tie_input = TiebreakerInput(
+        bull_votes=vote_map.get("APPROVE", 0) + vote_map.get("FULL_SIZE", 0),
+        bear_votes=vote_map.get("REJECT", 0) + vote_map.get("NO_TRADE", 0),
+        reduce_votes=vote_map.get("REDUCE_SIZE", 0),
+    )
+    return ConservativeTiebreaker.resolve(tie_input)

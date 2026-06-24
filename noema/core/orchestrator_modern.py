@@ -124,6 +124,11 @@ class ModernOrchestrator:
         # ── Phase 1.5: Event Analyst ──
         self.event_analyst = event_analyst
 
+        # ── Phase 2: Architecture Mode ──
+        self.architecture_mode: str = getattr(config, "architecture_mode", "flat") if config else "flat"
+        self._team_manager = None
+        self._conductor = None
+
         # Agent registry — populated by register_* methods
         self._data_agents: list[BaseAgent] = []
         self._analysis_agents: list[BaseAgent] = []
@@ -170,11 +175,8 @@ class ModernOrchestrator:
     def register_decision_agents(
         self,
         thesis: LLMAgent,
-    HealthStatus,
         devil: LLMAgent,
-    HealthStatus,
         cio: LLMAgent,
-    HealthStatus,
     ) -> None:
         self._thesis_agent = thesis
         self._devil_agent = devil

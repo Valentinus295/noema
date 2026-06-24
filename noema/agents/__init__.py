@@ -32,3 +32,8 @@ __all__ = [
     "PerformanceAnalystAgent", "LearningAgent", "GuardianAgent",
     "EventAnalyst", "EventAnalystState",
 ]
+
+# Phase 2: Noema Nexus
+from noema.agents.bull_analyst import BullAnalyst, BullAnalystState
+from noema.agents.critic_manager import CriticManager, CriticManagerState
+from noema.agents.order_router import OrderRouter
