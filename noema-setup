@@ -554,28 +554,27 @@ if [ "$NEED_WINE" = "true" ]; then
     section "Step 2.5: mt5linux Expert Advisor setup"
     info "Installing mt5linux bridge into MT5..."
     activate_venv
-    # Try the Python command first, but don't fail if it errors
-    python -m noema.scripts.mt5_daemon setup-mt5-ea 2>/dev/null || true
-    # Direct fallback: find and copy mt5linux EA from pip package
-    MTL5_EA_SRC=$(python -c "import mt5linux, os; p=os.path.dirname(mt5linux.__file__); ea=os.path.join(p,'mt5linux.ex5'); print(ea if os.path.exists(ea) else '')" 2>/dev/null)
     MTL5_EA_DST="$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Experts/mt5linux.ex5"
     MT5_EA_DST_X86="$HOME/.wine/drive_c/Program Files (x86)/MetaTrader 5/MQL5/Experts/mt5linux.ex5"
-    if [ -n "$MTL5_EA_SRC" ] && [ -f "$MTL5_EA_SRC" ]; then
+    if [ -f "$MTL5_EA_DST" ]; then
+        success "mt5linux EA already installed"
+    elif [ -f "$MT5_EA_DST_X86" ]; then
+        success "mt5linux EA already installed (x86 path)"
+    else
         mkdir -p "$(dirname "$MTL5_EA_DST")" 2>/dev/null || true
-        cp "$MTL5_EA_SRC" "$MTL5_EA_DST" 2>/dev/null || true
+        info "Downloading mt5linux EA from GitHub (pip package does NOT include .ex5)..."
+        wget -q -O "$MTL5_EA_DST" \
+            https://github.com/lucas-campagna/mt5linux/releases/latest/download/mt5linux.ex5 2>/dev/null || \
+        wget -q -O "$MTL5_EA_DST" \
+            https://raw.githubusercontent.com/lucas-campagna/mt5linux/main/mt5linux.ex5 2>/dev/null || true
     fi
     if [ -f "$MTL5_EA_DST" ]; then
-        success "mt5linux EA installed in MT5 Experts directory"
-        info "This EA exposes the RPyC bridge on port 18812 — Noema needs it to talk to MT5"
+        success "mt5linux EA installed (RPyC bridge, port 18812)"
     elif [ -f "$MT5_EA_DST_X86" ]; then
         success "mt5linux EA found in MT5 (x86 path)"
     else
-        warn "mt5linux EA not found — MT5 bridge will NOT work without it"
-        info "Manual fix:"
-        info "  pip install mt5linux"
-        info "  python -c \"import mt5linux; print(mt5linux.__file__)\""
-        info "  Copy mt5linux.ex5 from that directory to: $(dirname "$MTL5_EA_DST")"
-        info "  Or download from: https://github.com/lucas-campagna/mt5linux/releases"
+        warn "mt5linux EA download failed — install manually:"
+        info "  wget -O \"$MTL5_EA_DST\" https://github.com/lucas-campagna/mt5linux/releases/latest/download/mt5linux.ex5"
     fi
 fi
 
