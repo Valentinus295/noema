@@ -1,12 +1,15 @@
-"""Multi-Broker Gateway — aggregate FxPesa + FBS with smart routing.
+"""Multi-Broker Gateway — aggregate multiple brokers with smart routing.
 
 Routes orders to the broker with best liquidity, provides failover on broker
 health degradation, and reconciles cross-broker positions.
 
+Works with ANY MT5 broker — FxPesa, FBS, IC Markets, Exness, etc.
+Just register brokers by name and the gateway handles the rest.
+
 Architecture:
     MultiBrokerGateway
-    ├── MT5Broker (FxPesa)
-    ├── FBSBroker (FBS)
+    ├── MT5Broker (any MT5 broker)
+    ├── ...additional brokers
     ├── OrderRouter (best bid/ask + liquidity routing)
     ├── HealthMonitor (per-broker heartbeat + failover)
     └── PositionAggregator (cross-broker position view)
@@ -95,7 +98,7 @@ class BrokerStatus:
 # ═══════════════════════════════════════════════════════════
 
 class MultiBrokerGateway:
-    """Aggregate gateway for FxPesa (MT5Broker) + FBS (FBSBroker).
+    """Aggregate gateway for ANY MT5 broker(s).
 
     Provides:
     - Best bid/ask across all healthy brokers
@@ -103,17 +106,20 @@ class MultiBrokerGateway:
     - Cross-broker position reconciliation
     - Order routing by liquidity or price preference
     - Unified account view (sum of all brokers)
+
+    Works with FxPesa, FBS, IC Markets, Exness, or any MT5 broker.
     """
 
     def __init__(
         self,
         brokers: dict[str, BrokerBase] | None = None,
         routing_policy: OrderRoutingPolicy = OrderRoutingPolicy.BEST_LIQUIDITY,
-        primary_broker: str = "fxpesa",
+        primary_broker: str = "",
         health_check_interval: float = 5.0,
     ) -> None:
         self._brokers: dict[str, BrokerBase] = brokers or {}
         self._routing_policy = routing_policy
+        # Auto-detect primary: first registered broker if not specified
         self._primary_broker = primary_broker
         self._health_check_interval = health_check_interval
 
@@ -133,7 +139,10 @@ class MultiBrokerGateway:
         self._brokers[name] = broker
         if name not in self._status:
             self._status[name] = BrokerStatus(name=name)
-        self._logger.info("broker_registered", name=name)
+        # Auto-set primary broker to first registered if not specified
+        if not self._primary_broker:
+            self._primary_broker = name
+        self._logger.info("broker_registered", name=name, primary=self._primary_broker)
 
     def initialize(self) -> bool:
         """Initialize all registered brokers."""
@@ -540,6 +549,15 @@ class MultiBrokerGateway:
         """Change order routing policy at runtime."""
         self._routing_policy = policy
         self._logger.info("routing_policy_changed", policy=policy.value)
+
+    def set_primary_broker(self, name: str) -> None:
+        """Set the primary broker for routing."""
+        self._primary_broker = name
+        self._logger.info("primary_broker_changed", name=name)
+
+    @property
+    def primary_broker_name(self) -> str:
+        return self._primary_broker
 
     @property
     def broker_names(self) -> list[str]:

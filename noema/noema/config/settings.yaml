@@ -135,10 +135,10 @@ backtest:
     test_months: 2
 
 # ──────────────────── PHASE 5: INSTITUTIONAL ───────────────────
-# Multi-broker gateway aggregates FxPesa + FBS with smart routing
+# Multi-broker gateway — works with ANY MT5 broker (FxPesa, FBS, IC Markets, etc.)
 multi_broker:
   enabled: true
-  primary_broker: fxpesa          # fxpesa | fbs
+  primary_broker: ""              # Auto-detected: first registered broker
   routing_policy: best_liquidity  # best_price | best_liquidity | round_robin | failover
   health_check_interval: 5.0      # seconds between broker health checks
   failover_enabled: true
@@ -195,5 +195,21 @@ compliance:
 # ─────────────────────────── VERSIONING ───────────────────────
 versioning:
   # Every journal row and backtest artifact stamps: git_sha, settings_hash, strategy_version
-  strategy_version: "0.1.0"
+  strategy_version: "0.2.0"
   hash_settings_on_load: true
+
+# ─────────────────────────── MODE ─────────────────────────────
+# Demo/Live mode + micro account support
+mode:
+  default_mode: demo              # demo | live
+  demo_validation_days: 14        # Profitable days required before suggesting live
+  live_requires_confirmation: true  # Must type "YES" to enter live mode
+
+# ──────────────────────── MICRO MODE ──────────────────────────
+# Auto-scaling for small accounts ($10-$500)
+micro_mode:
+  risk_pct_per_trade: 0.02        # 2% of capital
+  daily_drawdown_pct: 0.15        # 15% of capital
+  min_lot_size: 0.01              # Micro lot
+  max_lot_size_under_100: 0.01    # Cap at 0.01 for accounts < $100
+  pip_value_per_lot: 10.0         # USD per pip per standard lot (forex)

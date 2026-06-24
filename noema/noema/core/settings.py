@@ -215,7 +215,7 @@ class EventConfig(BaseModel):
 class MultiBrokerConfig(BaseModel):
     """Multi-broker gateway configuration."""
     enabled: bool = True
-    primary_broker: str = "fxpesa"        # "fxpesa" | "fbs"
+    primary_broker: str = ""              # Auto-detected from first registered broker
     routing_policy: str = "best_liquidity"  # "best_price" | "best_liquidity" | "round_robin" | "failover"
     health_check_interval: float = 5.0     # seconds between broker health checks
     failover_enabled: bool = True
@@ -274,6 +274,22 @@ class ComplianceConfig(BaseModel):
     active_regulations: list[str] = ["internal"]  # "internal", "mica", "sec", etc.
 
 
+class ModeSettingsConfig(BaseModel):
+    """Demo/Live mode configuration."""
+    default_mode: str = "demo"              # "demo" | "live"
+    demo_validation_days: int = 14          # Profitable days before live suggestion
+    live_requires_confirmation: bool = True
+
+
+class MicroModeConfig(BaseModel):
+    """Micro account auto-scaling ($10-$500)."""
+    risk_pct_per_trade: float = 0.02        # 2% of capital
+    daily_drawdown_pct: float = 0.15        # 15% of capital
+    min_lot_size: float = 0.01              # Micro lot
+    max_lot_size_under_100: float = 0.01    # Cap for accounts < $100
+    pip_value_per_lot: float = 10.0         # USD per pip per standard lot (forex)
+
+
 class Settings(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     portfolio: PortfolioConfig = Field(default_factory=PortfolioConfig)
@@ -289,6 +305,8 @@ class Settings(BaseModel):
     reconciliation: ReconciliationConfig = Field(default_factory=ReconciliationConfig)
     risk_reporting: RiskReportingConfig = Field(default_factory=RiskReportingConfig)
     compliance: ComplianceConfig = Field(default_factory=ComplianceConfig)
+    mode_settings: ModeSettingsConfig = Field(default_factory=ModeSettingsConfig)
+    micro_mode: MicroModeConfig = Field(default_factory=MicroModeConfig)
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///noema.db"
     redis_url: str = ""
@@ -324,6 +342,8 @@ def load_settings(path: Path | None = None) -> Settings:
         reconciliation=ReconciliationConfig(**data.get("reconciliation", {})),
         risk_reporting=RiskReportingConfig(**data.get("risk_reporting", {})),
         compliance=ComplianceConfig(**data.get("compliance", {})),
+        mode_settings=ModeSettingsConfig(**data.get("mode", {})),
+        micro_mode=MicroModeConfig(**data.get("micro_mode", {})),
         log_level=data.get("log_level", "INFO"),
         database_url=data.get("database_url", "sqlite+aiosqlite:///noema.db"),
         redis_url=data.get("redis_url", ""),

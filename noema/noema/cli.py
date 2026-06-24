@@ -1,14 +1,14 @@
 """
 Noema CLI — Dead-simple daily commands.
 
-One command workflow: noema start
-
 Usage:
+    noema live        LIVE DEMO trading (real MT5 data, demo account)
     noema start       Start everything (MT5, dashboard, trading)
     noema stop        Graceful shutdown
     noema status      Quick status check
     noema dashboard   Start dashboard only
     noema logs        Tail live logs
+    noema demo-check  Verify demo account (no real money allowed)
 """
 
 from __future__ import annotations
@@ -34,6 +34,10 @@ LOG_DASHBOARD_API = PID_DIR / "noema-dashboard-api.log"
 LOG_DASHBOARD_FRONTEND = PID_DIR / "noema-dashboard-frontend.log"
 
 VERSION = "0.1.0"
+
+# ── First-run micro-lot enforcement ──
+FIRST_RUN_LOT_SIZE = 0.01
+FIRST_RUN_FLAG_FILE = Path.home() / ".noema" / ".first-run-complete"
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -407,7 +411,288 @@ def _stop_mt5() -> bool:
     return True
 
 
+# ── Demo Account Verification ───────────────────────────────────────
+
+def _verify_demo_account() -> tuple[bool, str]:
+    """Verify that the MT5 broker is connected to a DEMO server.
+    
+    CRITICAL SAFETY CHECK: Blocks trading on real/live accounts.
+    Returns (is_demo, server_name).
+    """
+    try:
+        from mt5linux import MetaTrader5
+        mt5 = MetaTrader5(host="127.0.0.1", port=18812)
+        if not mt5.initialize():
+            return False, "Cannot connect to MT5"
+        info = mt5.account_info()
+        mt5.shutdown()
+        if info is None:
+            return False, "Cannot get account info"
+        server = info.server.lower()
+        is_demo = "demo" in server
+        return is_demo, info.server
+    except ImportError:
+        return False, "mt5linux not installed"
+    except Exception as exc:
+        return False, f"Error: {exc}"
+
+
+def _is_first_run() -> bool:
+    """Check if this is the first live trading run."""
+    return not FIRST_RUN_FLAG_FILE.exists()
+
+
+def _mark_first_run_complete() -> None:
+    """Mark first run as complete (unlocks full lot sizes)."""
+    FIRST_RUN_FLAG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    FIRST_RUN_FLAG_FILE.write_text("complete")
+
+
 # ── Commands ──────────────────────────────────────────────────────
+
+
+def cmd_live(args: argparse.Namespace) -> None:
+    """Start LIVE DEMO trading with real market data on a demo account."""
+    print(f"🧠 Noema v{VERSION} — LIVE DEMO TRADING")
+    print("=" * 60)
+
+    env = _load_env()
+
+    # 0. Check .env
+    env_path = _find_env()
+    if not env_path:
+        print("❌ No .env file found.")
+        print("   Run ./noema-setup first to create your configuration.")
+        sys.exit(1)
+    _print("📋", "Loading .env...")
+
+    # 1. SAFETY: Verify MT5 broker is DEMO account
+    print()
+    print("🛡️  SAFETY CHECK: Verifying DEMO account...")
+    is_demo, server_name = _verify_demo_account()
+    if not is_demo:
+        print(f"❌ LIVE TRADING BLOCKED!")
+        print(f"   Connected to: {server_name}")
+        print(f"   This does NOT appear to be a demo server.")
+        print(f"   Noema will NEVER trade on a real/live account without explicit approval.")
+        sys.exit(1)
+    _print("✅", f"Demo account verified: {server_name}")
+
+    # 2. Show account info
+    try:
+        from mt5linux import MetaTrader5
+        mt5_temp = MetaTrader5(host="127.0.0.1", port=18812)
+        if mt5_temp.initialize():
+            info = mt5_temp.account_info()
+            if info:
+                print(f"   Login: {info.login}")
+                print(f"   Balance: ${float(info.balance):,.2f}")
+                print(f"   Equity: ${float(info.equity):,.2f}")
+                print(f"   Leverage: 1:{info.leverage}")
+                print(f"   Currency: {info.currency}")
+            mt5_temp.shutdown()
+    except Exception:
+        pass
+
+    # 3. First-run safety: micro-lot enforcement
+    first_run = _is_first_run()
+    if first_run:
+        print()
+        print("🔰 FIRST RUN DETECTED — Micro-Lot Safety Mode")
+        print(f"   Lot size capped at: {FIRST_RUN_LOT_SIZE}")
+        print(f"   After a successful session, run 'noema live --unlock' to lift cap.")
+        os.environ["Noema_FIRST_RUN"] = "true"
+        os.environ["Noema_MAX_LOT_SIZE"] = str(FIRST_RUN_LOT_SIZE)
+    elif args.unlock:
+        print()
+        print("🔓 Unlocking full lot sizes...")
+        _mark_first_run_complete()
+        print("   First-run restrictions lifted. Full lot sizes enabled.")
+        os.environ.pop("Noema_FIRST_RUN", None)
+        os.environ["Noema_MAX_LOT_SIZE"] = env.get("Noema_MAX_LOT_SIZE", "1.0")
+
+    # 4. Check if already running
+    if _is_running(PID_TRADING):
+        print("⚠️  Noema appears to be already running.")
+        try:
+            answer = input("   Restart? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        if answer not in ("y", "yes"):
+            print("   Leaving current instance running.")
+            return
+        cmd_stop(args)
+
+    # 5. Check for venv
+    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        _print("🐍", "Activating venv...")
+        python_exe = str(venv_python)
+    else:
+        python_exe = sys.executable
+
+    # 6. Install mt5linux EA if needed
+    _print("🔧", "Checking MT5 Expert Advisor...")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "noema.scripts.mt5_daemon", "setup-mt5-ea"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+    # 7. Start MT5 headless
+    print()
+    if _should_start_mt5(env):
+        if not _start_mt5():
+            print("❌ MT5 did not start — cannot proceed with live trading")
+            sys.exit(1)
+        startup_wait = int(env.get("Noema_MT5_STARTUP_WAIT", "120"))
+        if not _wait_for_port(18812, timeout=startup_wait, label="MT5 (port 18812)"):
+            print("❌ MT5 bridge not responding on port 18812")
+            print("   Check: wine MT5 running? mt5linux EA installed?")
+            sys.exit(1)
+    else:
+        if not _wait_for_port(18812, timeout=5, label="MT5 (port 18812)"):
+            print("❌ MT5 bridge not detected on port 18812")
+            print("   Set Noema_MT5_HEADLESS=true in .env for auto-start")
+            print("   Or start manually: python -m noema.scripts.mt5_daemon start")
+            sys.exit(1)
+
+    # 8. Start dashboard API
+    _print("📊", "Starting dashboard API...")
+    dashboard_dir = PROJECT_ROOT / "dashboard"
+    api_script = dashboard_dir / "server" / "api.py"
+    if api_script.exists():
+        _run_background(
+            [python_exe, str(api_script)],
+            PID_DASHBOARD_API,
+            LOG_DASHBOARD_API,
+            cwd=PROJECT_ROOT,
+        )
+        _wait_for_port(8000, label="API (port 8000)")
+    else:
+        print("   ⚠️ Dashboard API not found — skipping")
+
+    # 9. Start dashboard frontend
+    _print("📊", "Starting dashboard frontend...")
+    npm_tool = _find_npm_or_npx()
+    if npm_tool and (dashboard_dir / "package.json").exists():
+        if npm_tool == "npx":
+            frontend_cmd = ["npx", "vite", "--port", "3000", "--host"]
+        else:
+            frontend_cmd = ["npm", "run", "dev"]
+        _run_background(
+            frontend_cmd,
+            PID_DASHBOARD_FRONTEND,
+            LOG_DASHBOARD_FRONTEND,
+            cwd=dashboard_dir,
+        )
+        _wait_for_url("http://localhost:3000", label="frontend (port 3000)")
+    else:
+        print("   ⚠️ npm not found — skipping dashboard frontend")
+
+    # 10. Open browser
+    if _is_running(PID_DASHBOARD_FRONTEND):
+        _open_browser("http://localhost:3000")
+    else:
+        _print_url_box("http://localhost:3000")
+
+    # 11. Start trading engine in LIVE mode
+    print()
+    _print("📈", "Starting LIVE TRADING engine...")
+    trading_args = [python_exe, "-m", "noema.main", "--live", "--mt5-auto"]
+    if first_run:
+        trading_args.append("--first-run")
+    _run_background(
+        trading_args,
+        PID_TRADING,
+        LOG_TRADING,
+        cwd=PROJECT_ROOT,
+    )
+
+    time.sleep(2)
+    if _is_running(PID_TRADING):
+        _print("✅", "LIVE TRADING engine started")
+    else:
+        print("⚠️  Trading engine may have failed — check logs: noema logs")
+
+    # 12. Summary
+    telegram_token = env.get("TELEGRAM_BOT_TOKEN", "")
+    telegram_status = "active" if telegram_token else "not configured"
+    guardian_switches = "ALL 17 active" if not first_run else "ALL 17 active (micro-lot mode)"
+    print()
+    print("=" * 60)
+    print(f"🔴 LIVE DEMO TRADING — No Real Money")
+    print(f"   Dashboard: http://localhost:3000")
+    print(f"   Logs:      noema logs")
+    print(f"   Status:    noema status")
+    print(f"   Telegram:  {telegram_status}")
+    print(f"   Guardian:  {guardian_switches}")
+    print(f"   Lot size:  {FIRST_RUN_LOT_SIZE if first_run else env.get('Noema_MAX_LOT_SIZE', '1.0')}")
+    if first_run:
+        print(f"   ⚠️  First run — micro-lot safety cap active")
+        print(f"   👉 After successful run: noema live --unlock")
+    print("=" * 60)
+    print()
+
+
+def cmd_demo_check(args: argparse.Namespace) -> None:
+    """Verify the MT5 connection is to a DEMO account (NO real money)."""
+    print(f"🧠 Noema v{VERSION} — Demo Account Verification")
+    print("=" * 60)
+
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2.0)
+    port_open = sock.connect_ex(("127.0.0.1", 18812)) == 0
+    sock.close()
+
+    if not port_open:
+        print("❌ MT5 bridge not detected on port 18812")
+        print("   Start MT5 first: python -m noema.scripts.mt5_daemon start")
+        sys.exit(1)
+
+    print("✅ MT5 bridge detected on port 18812")
+
+    is_demo, server_name = _verify_demo_account()
+    if is_demo:
+        print(f"✅ DEMO ACCOUNT: {server_name}")
+        print("   Safe for live trading — no real money at risk.")
+        try:
+            from mt5linux import MetaTrader5
+            mt5 = MetaTrader5(host="127.0.0.1", port=18812)
+            if mt5.initialize():
+                info = mt5.account_info()
+                if info:
+                    print(f"   Login:    {info.login}")
+                    print(f"   Balance:  ${float(info.balance):,.2f}")
+                    print(f"   Equity:   ${float(info.equity):,.2f}")
+                    print(f"   Leverage: 1:{info.leverage}")
+                    print(f"   Currency: {info.currency}")
+                positions = mt5.positions_get()
+                if positions:
+                    print(f"   Open positions: {len(positions)}")
+                    for p in positions[:5]:
+                        side = "LONG" if p.type == 0 else "SHORT"
+                        print(f"     #{p.ticket} {p.symbol} {side} {p.volume} lot @ {p.price_open}")
+                else:
+                    print(f"   Open positions: 0")
+                mt5.shutdown()
+        except Exception as exc:
+            print(f"   ⚠️ Could not get details: {exc}")
+    else:
+        print(f"❌ NOT A DEMO ACCOUNT: {server_name}")
+        print("   ⚠️  This appears to be a LIVE/REAL account!")
+        print("   Noema will BLOCK trading on this account.")
+        print("   Configure a demo server in .env:")
+        print("     Noema_MT5_SERVER=FxPesa-Demo")
+        sys.exit(1)
+
+    print()
+    print("Ready for live demo trading: noema live")
 
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -552,10 +837,8 @@ def cmd_status(args: argparse.Namespace) -> None:
     mt5_running = _is_running(PID_MT5)
 
     if trading_running:
-        # Try to get uptime from PID file stat
         try:
             pid = _read_pid(PID_TRADING)
-            # Get process start time from /proc
             stat_path = Path(f"/proc/{pid}/stat")
             if stat_path.exists():
                 boot_time = float(Path("/proc/stat").read_text().splitlines()[0].split()[1])
@@ -563,7 +846,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 hertz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
                 uptime_seconds = time.time() - (boot_time + proc_start_jiffies / hertz)
                 if uptime_seconds < 0:
-                    uptime_seconds = 0  # clock skew guard
+                    uptime_seconds = 0
                 hours = int(uptime_seconds // 3600)
                 mins = int((uptime_seconds % 3600) // 60)
                 uptime_str = f" (uptime: {hours}h {mins}m)"
@@ -571,7 +854,6 @@ def cmd_status(args: argparse.Namespace) -> None:
                 uptime_str = ""
         except Exception:
             uptime_str = ""
-
         print(f"   Status: 🟢 RUNNING{uptime_str}")
         print(f"   Dashboard: http://localhost:3000")
     else:
@@ -584,10 +866,8 @@ def cmd_status(args: argparse.Namespace) -> None:
     if mt5_running:
         print(f"   MT5:           🟢 running (port 18812)")
 
-    # Try to query dashboard API for positions/P&L if API is running
     if api_running:
         _try_print_positions()
-
     print()
 
 
@@ -595,9 +875,7 @@ def _try_print_positions() -> None:
     """Query the dashboard API for positions and guardian status."""
     import urllib.request
     import json
-
     try:
-        # Try positions endpoint
         req = urllib.request.Request("http://127.0.0.1:8000/api/positions", method="GET")
         with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
@@ -612,9 +890,7 @@ def _try_print_positions() -> None:
                     print(f"   📊 {symbol} {side.upper()} @{entry} | {pnl_str}")
     except Exception:
         pass
-
     try:
-        # Try guardian/health endpoint
         req = urllib.request.Request("http://127.0.0.1:8000/api/health", method="GET")
         with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
@@ -630,8 +906,6 @@ def _try_print_positions() -> None:
 def cmd_dashboard(args: argparse.Namespace) -> None:
     """Start dashboard only (API + frontend)."""
     print(f"🧠 Noema v{VERSION}")
-
-    # Check if already running
     if _is_running(PID_DASHBOARD_API):
         print("⚠️  Dashboard already running at http://localhost:3000")
         _open_browser("http://localhost:3000")
@@ -641,21 +915,14 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
     python_exe = str(venv_python) if venv_python.exists() else sys.executable
     dashboard_dir = PROJECT_ROOT / "dashboard"
 
-    # Start API
     api_script = dashboard_dir / "server" / "api.py"
     if api_script.exists():
         _print("📊", "Starting dashboard API...")
-        _run_background(
-            [python_exe, str(api_script)],
-            PID_DASHBOARD_API,
-            LOG_DASHBOARD_API,
-            cwd=PROJECT_ROOT,
-        )
+        _run_background([python_exe, str(api_script)], PID_DASHBOARD_API, LOG_DASHBOARD_API, cwd=PROJECT_ROOT)
         _wait_for_port(8000, label="API (port 8000)")
     else:
         print("   ⚠️ Dashboard API not found")
 
-    # Start frontend
     npm_tool = _find_npm_or_npx()
     if npm_tool and (dashboard_dir / "package.json").exists():
         _print("📊", "Starting dashboard frontend...")
@@ -663,17 +930,11 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
             frontend_cmd = ["npx", "vite", "--port", "3000", "--host"]
         else:
             frontend_cmd = ["npm", "run", "dev"]
-        _run_background(
-            frontend_cmd,
-            PID_DASHBOARD_FRONTEND,
-            LOG_DASHBOARD_FRONTEND,
-            cwd=dashboard_dir,
-        )
+        _run_background(frontend_cmd, PID_DASHBOARD_FRONTEND, LOG_DASHBOARD_FRONTEND, cwd=dashboard_dir)
         _wait_for_url("http://localhost:3000", label="frontend (port 3000)")
     else:
         print("   ⚠️ npm not found — skipping dashboard frontend")
 
-    # Only open browser if frontend is actually responding
     frontend_ok = _wait_for_url("http://localhost:3000", timeout=5, label="frontend check")
     if frontend_ok:
         _open_browser("http://localhost:3000")
@@ -684,11 +945,7 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
 
 
 def cmd_setup_mt5_ea(args: argparse.Namespace) -> None:
-    """Copy the mt5linux Expert Advisor into MT5's Experts directory.
-
-    This EA is required — it runs inside MT5 and exposes the RPyC bridge
-    on port 18812. Without it, Noema cannot communicate with MT5.
-    """
+    """Copy the mt5linux Expert Advisor into MT5's Experts directory."""
     print(f"🧠 Noema v{VERSION}")
     print()
     try:
@@ -708,12 +965,9 @@ def cmd_logs(args: argparse.Namespace) -> None:
     for pf in [LOG_TRADING, LOG_DASHBOARD_API, LOG_DASHBOARD_FRONTEND]:
         if pf.exists():
             log_files.append(pf)
-
     if not log_files:
         print("📜 No log files found. Start Noema first: noema start")
         return
-
-    # Use tail -f to follow all log files
     print(f"📜 Tailing {len(log_files)} log file(s)... (Ctrl+C to stop)")
     print()
     try:
@@ -721,7 +975,6 @@ def cmd_logs(args: argparse.Namespace) -> None:
     except KeyboardInterrupt:
         print()
     except FileNotFoundError:
-        # Fallback: just cat the last 50 lines
         for lf in log_files:
             print(f"\n── {lf.name} ──")
             with open(lf) as f:
@@ -740,6 +993,24 @@ def main() -> None:
         description="🧠 Noema — Multi-Agent Quantitative Forex Trading",
     )
     sub = parser.add_subparsers(dest="command", help="Command")
+
+    # live — THE primary command for live demo trading
+    p_live = sub.add_parser(
+        "live",
+        help="Start LIVE DEMO trading (real MT5 data, demo account, NO real money)",
+    )
+    p_live.add_argument(
+        "--unlock", action="store_true",
+        help="Unlock full lot sizes after successful first run",
+    )
+    p_live.set_defaults(func=cmd_live)
+
+    # demo-check — verify demo account before trading
+    p_demo = sub.add_parser(
+        "demo-check",
+        help="Verify MT5 connection is a DEMO account (safety check)",
+    )
+    p_demo.set_defaults(func=cmd_demo_check)
 
     # start
     p_start = sub.add_parser("start", help="Start everything: MT5, dashboard, trading")

@@ -108,8 +108,10 @@ def check_max_lot(
     This is the PHYSICAL gate. Call this BEFORE any broker operation.
     If the check fails, the order MUST NOT be sent to the broker.
 
-    Always uses the compile-time constant Noema_MAX_LOT_SIZE — callers
-    CANNOT override the max lot limit. This is intentional defense-in-depth.
+    Priority:
+    1. Environment override `Noema_MAX_LOT_SIZE` (e.g., 0.01 for first run)
+    2. Compile-time constant `Noema_MAX_LOT_SIZE` (1.0 default)
+    The LOWER of the two is used — defense-in-depth.
 
     Args:
         lot_size: The requested position size in lots.
@@ -122,7 +124,21 @@ def check_max_lot(
     Raises:
         OrderRejectedError: If raise_on_fail=True and check fails.
     """
-    max_lot = Noema_MAX_LOT_SIZE
+    import os
+    # Allow env override to REDUCE max lot (e.g., first-run micro-lot mode)
+    # The env override can only LOWER the cap, never raise it above the compile-time constant
+    env_max = os.getenv("Noema_MAX_LOT_SIZE", "")
+    compile_max = Noema_MAX_LOT_SIZE
+    if env_max:
+        try:
+            env_val = float(env_max)
+            # Use the LOWER of env override and compile-time constant
+            max_lot = min(env_val, compile_max)
+        except ValueError:
+            max_lot = compile_max
+    else:
+        max_lot = compile_max
+
     passed = lot_size <= max_lot
 
     if passed:

@@ -443,6 +443,22 @@ async def main() -> None:
     parser.add_argument("--interval", type=float, default=60.0, help="Cycle interval in seconds")
     parser.add_argument("--dry-run", action="store_true", help="Use paper broker")
     parser.add_argument(
+        "--mode", type=str, default="demo", choices=["demo", "live"],
+        help="Trading mode: demo or live (real money). Default: demo",
+    )
+    parser.add_argument(
+        "--capital", type=float, default=None,
+        help="Starting capital in USD. <$100 enables micro mode with 0.01 lots",
+    )
+    parser.add_argument(
+        "--broker-name", type=str, default=None,
+        help="Broker name for display (e.g., FxPesa, FBS, IC Markets)",
+    )
+    parser.add_argument(
+        "--broker-server", type=str, default=None,
+        help="MT5 server name override (e.g., FxPesa-Demo, FBS-Real)",
+    )
+    parser.add_argument(
         "--mt5-auto", action="store_true",
         help="Auto-start MT5 headless daemon before trading",
     )
@@ -460,6 +476,47 @@ async def main() -> None:
     settings = load_settings()
     if args.dry_run:
         settings.broker.type = "paper"
+    
+    # ── LIVE MODE SAFETY: Enforce MT5 broker + demo account ──────
+    if args.live:
+        # Force MT5 broker — never paper in live mode
+        os.environ["NOEMA_BROKER"] = "mt5_linux"
+        settings.broker.type = "mt5_linux"
+        
+        # Enforce first-run micro-lot if flag set
+        if args.first_run:
+            os.environ["Noema_FIRST_RUN"] = "true"
+            os.environ.setdefault("Noema_MAX_LOT_SIZE", "0.01")
+            settings.risk.max_lot_size = 0.01
+            logger.info("first_run_micro_lot_enforced", max_lot=0.01)
+
+    # ── Mode configuration ──────────────────────────────────
+    from noema.core.mode_config import ModeConfig, MicroPositionSizer
+    
+    trading_mode = args.mode or "demo"
+    starting_capital = args.capital
+    if starting_capital is None:
+        starting_capital = float(os.getenv("Noema_STARTING_CAPITAL", "0"))
+    if starting_capital <= 0:
+        starting_capital = 10.0  # Default $10 micro
+    
+    mode_config = ModeConfig(mode=trading_mode, capital=starting_capital)
+    micro_sizer = MicroPositionSizer.for_capital(starting_capital)
+    
+    # Override broker server if provided
+    if args.broker_server:
+        os.environ["Noema_MT5_SERVER"] = args.broker_server
+        settings.broker.mt5_server = args.broker_server
+    if args.broker_name:
+        os.environ["Noema_BROKER_NAME"] = args.broker_name
+    
+    # Live mode: extra warning banner
+    if trading_mode == "live":
+        logger.warning(
+            "live_mode_active",
+            capital=starting_capital,
+            risk_per_trade=micro_sizer.get_risk_limits()["risk_per_trade_amount"],
+        )
 
     # ── Phase 6: Configure structured logging ────────────────────────
     _configure_logging(
@@ -501,6 +558,24 @@ async def main() -> None:
                 hint="Start MT5 manually: python -m noema.scripts.mt5_daemon start",
             )
             sys.exit(1)
+        
+        # ── DEMO ACCOUNT VERIFICATION (live mode) ─────────────────
+        if args.live:
+            from noema.scripts.check_demo import verify_demo_account
+            is_demo, server_name = verify_demo_account()
+            if not is_demo:
+                logger.critical(
+                    "live_trading_blocked_not_demo",
+                    server=server_name,
+                    reason="Server name does not contain 'Demo' — REAL MONEY PROTECTION",
+                )
+                print(f"\n❌ LIVE TRADING BLOCKED!")
+                print(f"   Server: {server_name}")
+                print(f"   This does NOT appear to be a demo account.")
+                print(f"   Noema will NEVER trade real money without explicit approval.\n")
+                sys.exit(1)
+            logger.info("demo_account_verified", server=server_name)
+            print(f"✅ Demo account verified: {server_name}")
 
     # ── Initialize Observability ────────────────────────────────────
     init_observability(
@@ -511,6 +586,10 @@ async def main() -> None:
 
     # Create orchestrator + services
     orch, services = await create_orchestrator(settings)
+    
+    # Wire mode config into orchestrator
+    orch.mode_config = mode_config
+    orch.micro_sizer = micro_sizer
 
     # ── Phase 6: Graceful Shutdown Manager ───────────────────────────
     shutdown_config = load_shutdown_config_from_env()
