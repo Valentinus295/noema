@@ -1,0 +1,133 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Noema Trading System — Systemd Service
+#
+# Install:
+#   sudo cp config/noema.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable noema.service
+#   sudo systemctl start noema.service
+#
+# Check:
+#   sudo systemctl status noema.service
+#   sudo journalctl -u noema.service -f
+#   sudo journalctl -u noema.service --since "10 min ago"
+#
+# Notes:
+#   - Requires Python 3.11+ with noema installed (pip install -e .)
+#   - .env file must exist at /opt/noema/.env or set via EnvironmentFile
+#   - MT5 should be started separately (noema-mt5.service) before this
+#   - Depends on noema-mt5.service if MT5 broker is used
+#   - Logs are sent to journald (view with journalctl) + rotated log files
+#
+# Production Recommendations:
+#   - Run as dedicated 'noema' user (not root)
+#   - Lock down with systemd security directives
+#   - Protect .env and credentials with 600 permissions
+#   - Enable automatic restart with Restart=on-failure
+# ═══════════════════════════════════════════════════════════════════════
+
+[Unit]
+Description=Noema — Multi-agent quantitative forex trading system
+Documentation=https://github.com/Valentinus295/noema
+After=network.target network-online.target
+Wants=network-online.target
+# Uncomment if MT5 broker is used:
+# Requires=noema-mt5.service
+# After=noema-mt5.service
+
+[Service]
+Type=simple
+
+# ── User / Group ──────────────────────────────────────────────────────
+# Run as dedicated user (recommended)
+User=noema
+Group=noema
+
+# ── Working Directory ─────────────────────────────────────────────────
+WorkingDirectory=/opt/noema
+
+# ── Environment ───────────────────────────────────────────────────────
+# Load credentials from .env file (must exist, owner-only read)
+EnvironmentFile=-/opt/noema/.env
+# Additional env vars
+Environment=PYTHONUNBUFFERED=1
+Environment=NOEMA_ENV=production
+Environment=NOEMA_PID_FILE=/run/noema/noema.pid
+
+# ── Exec ──────────────────────────────────────────────────────────────
+# Pre-start: Validate configuration (fail fast)
+ExecStartPre=/opt/noema/venv/bin/python -c "
+import os, sys
+os.environ.setdefault('NOEMA_CONFIG_PATH', '/opt/noema/config/settings.yaml')
+from noema.core.config_validator import validate_config, format_validation_errors
+from noema.core.settings import load_settings
+settings = load_settings()
+result = validate_config(settings, env_file='/opt/noema/.env', mode='production')
+if not result.is_valid:
+    print(format_validation_errors(result))
+    sys.exit(1)
+print('Configuration validated OK')
+"
+
+# Main application
+ExecStart=/opt/noema/venv/bin/python -m noema.main \
+    --config /opt/noema/config/settings.yaml \
+    --interval 60
+
+# ── Restart Policy ────────────────────────────────────────────────────
+# Auto-restart on failure, but not more than 3 times in 5 minutes
+Restart=on-failure
+RestartSec=15
+StartLimitBurst=3
+StartLimitInterval=300
+
+# ── Timeouts ──────────────────────────────────────────────────────────
+TimeoutStartSec=60
+TimeoutStopSec=35
+
+# ── Graceful Shutdown ─────────────────────────────────────────────────
+# Send SIGTERM, wait for clean shutdown with position handling
+# If the process doesn't stop within TimeoutStopSec, systemd sends SIGKILL
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+
+# ── Logging ───────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=noema
+
+# ── Security Hardening ────────────────────────────────────────────────
+# Lock down the service (defense-in-depth)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/noema/logs /opt/noema/data /run/noema
+ReadOnlyPaths=/opt/noema/config /opt/noema/.env
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no       # Python needs W^X memory
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=027
+
+# ── Resource Limits ───────────────────────────────────────────────────
+LimitNOFILE=65536
+LimitNPROC=512
+MemoryMax=2G
+CPUQuota=200%
+
+# ── PID File ──────────────────────────────────────────────────────────
+# Runtime directory for PID file (systemd creates /run/noema automatically)
+RuntimeDirectory=noema
+RuntimeDirectoryMode=0750
+PIDFile=/run/noema/noema.pid
+
+[Install]
+WantedBy=multi-user.target

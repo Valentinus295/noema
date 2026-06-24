@@ -1,0 +1,43 @@
+name: Publish Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d2073de343d662b3e0a56c3f5f24e3e2c4a2ef6e  # v5.4.0
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@8cafab4f7b2be3e4a6d45f9f778e4e3c4e5f3b6f  # v1.12.0
+        with:
+          packages-dir: dist/
+
+  github-packages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d2073de343d662b3e0a56c3f5f24e3e2c4a2ef6e
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish to GitHub Packages
+        run: uv publish --index-url https://pypi.org/simple/ --token ${{ secrets.GITHUB_TOKEN }}

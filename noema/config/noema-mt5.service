@@ -1,0 +1,49 @@
+# ═══════════════════════════════════════════════════════════
+# Noema MT5 Headless Service (systemd)
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp config/noema-mt5.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable noema-mt5.service
+#   systemctl --user start noema-mt5.service
+#
+# Check:
+#   systemctl --user status noema-mt5.service
+#   journalctl --user -u noema-mt5.service -f
+#
+# Notes:
+#   - Requires xvfb (sudo apt install xvfb)
+#   - Config must be generated first: python -m noema.scripts.mt5_daemon generate-config
+#   - MT5 must be installed under Wine
+# ═══════════════════════════════════════════════════════════════
+
+[Unit]
+Description=Noema MT5 Headless Service
+Documentation=https://github.com/Valentinus295/noema
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+Environment=DISPLAY=:99
+EnvironmentFile=%h/.noema/mt5-env
+ExecStartPre=/bin/sh -c 'mkdir -p %h/.noema'
+ExecStart=/usr/bin/xvfb-run -a \
+    /usr/bin/wine \
+    %h/.wine/drive_c/Program\\ Files/MetaTrader\\ 5/terminal64.exe \
+    /portable \
+    /config:%h/.noema/mt5-config.ini
+ExecStop=/usr/bin/wineserver -k
+ExecStopPost=/bin/rm -f %h/.noema/mt5-daemon.pid
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=180
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

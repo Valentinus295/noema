@@ -1,0 +1,225 @@
+name: Noema CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  CARGO_TERM_COLOR: "always"
+
+jobs:
+  # ── Python Linting ──────────────────────────────────────────
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@d4a88f44cd172c2114c7d2a6140411eb1afbd08b # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --only-group dev
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+  # ── Python Tests (matrix) ───────────────────────────────────
+  test-python:
+    name: Python ${{ matrix.python-version }} Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@d4a88f44cd172c2114c7d2a6140411eb1afbd08b # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov=noema \
+            --cov-report=xml:coverage-${{ matrix.python-version }}.xml \
+            --cov-report=term-missing \
+            -v \
+            tests/
+
+      - name: Upload coverage to Codecov (optional)
+        if: success()
+        uses: codecov/codecov-action@13ce06bfc8bbe3ecf90edbbf1bc32fe5978ca1d3 # v5.4.0
+        with:
+          files: coverage-${{ matrix.python-version }}.xml
+          flags: python,${{ matrix.python-version }}
+        continue-on-error: true
+
+  # ── Rust Build & Test ───────────────────────────────────────
+  test-rust:
+    name: Rust Build + Test
+    runs-on: ubuntu-latest
+    # Only run if rust/ directory has changes or on PRs touching it
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check if rust/ exists
+        id: check-rust
+        run: |
+          if [ -d "rust" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install Rust toolchain
+        if: steps.check-rust.outputs.exists == 'true'
+        uses: dtolnay/rust-toolchain@315e265cd78dad1e0dcf3a10741b210fbbe59ec9 # stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        if: steps.check-rust.outputs.exists == 'true'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Rust format check
+        if: steps.check-rust.outputs.exists == 'true'
+        working-directory: rust
+        run: cargo fmt --all --check
+
+      - name: Rust clippy
+        if: steps.check-rust.outputs.exists == 'true'
+        working-directory: rust
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Rust build (pure-rust, no PyO3)
+        if: steps.check-rust.outputs.exists == 'true'
+        working-directory: rust
+        run: cargo build --no-default-features --features pure-rust --release
+
+      - name: Rust tests
+        if: steps.check-rust.outputs.exists == 'true'
+        working-directory: rust
+        run: cargo test --no-default-features --features pure-rust --release
+
+  # ── Docker Build Validation ─────────────────────────────────
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ecbb6464e19 # v3.10.0
+
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml config
+
+      # Only build Docker image if Dockerfile exists
+      - name: Check Dockerfile
+        id: check-dockerfile
+        run: |
+          if [ -f "Dockerfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image
+        if: steps.check-dockerfile.outputs.exists == 'true'
+        uses: docker/build-push-action@da56c5e16a0dc4da431cfb452ea4992497f9e673 # v6.22.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: noema:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Security Checks ─────────────────────────────────────────
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@d4a88f44cd172c2114c7d2a6140411eb1afbd08b # v5.4.2
+
+      - name: Install test deps
+        run: uv sync --only-group dev
+
+      - name: Detect secrets
+        run: uv run detect-secrets scan --all-files
+
+      - name: Audit Python dependencies
+        run: uv run pip-audit
+
+      - name: Audit Rust dependencies
+        if: hashFiles('rust/Cargo.lock') != ''
+        run: |
+          cargo install cargo-audit --locked
+          cd rust && cargo audit
+
+  # ── PR Summary ─────────────────────────────────────────────
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [lint, test-python, test-rust, docker, security]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "## CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Tests | ${{ needs.test-python.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rust Build | ${{ needs.test-rust.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker | ${{ needs.docker.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security | ${{ needs.security.result }} |" >> $GITHUB_STEP_SUMMARY
+
+          # Fail if any critical job failed
+          FAILED=0
+          if [ "${{ needs.lint.result }}" != "success" ] && [ "${{ needs.lint.result }}" != "skipped" ]; then FAILED=1; fi
+          if [ "${{ needs.test-python.result }}" != "success" ]; then FAILED=1; fi
+          if [ "${{ needs.security.result }}" != "success" ] && [ "${{ needs.security.result }}" != "skipped" ]; then FAILED=1; fi
+          exit $FAILED
