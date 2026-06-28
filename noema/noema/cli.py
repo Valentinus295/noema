@@ -603,7 +603,7 @@ def cmd_live(args: argparse.Namespace) -> None:
     # 11. Start trading engine in LIVE mode
     print()
     _print("📈", "Starting LIVE TRADING engine...")
-    trading_args = [python_exe, "-m", "noema.main", "--live", "--mt5-auto"]
+    trading_args = [python_exe, "-m", "noema.main", "--mode", "live", "--mt5-auto"]
     if first_run:
         trading_args.append("--first-run")
     _run_background(

@@ -442,6 +442,10 @@ async def main() -> None:
         "--no-validate", action="store_true",
         help="Skip configuration validation on startup",
     )
+    parser.add_argument(
+        "--first-run", action="store_true",
+        help="Enforce first-run micro-lot safety cap (0.01 lots)",
+    )
     args = parser.parse_args()
 
     # Load config
@@ -450,7 +454,7 @@ async def main() -> None:
         settings.broker.type = "paper"
     
     # ── LIVE MODE SAFETY: Enforce MT5 broker + demo account ──────
-    if args.live:
+    if args.mode == "live":
         # Force MT5 broker — never paper in live mode
         os.environ["NOEMA_BROKER"] = "mt5_linux"
         settings.broker.type = "mt5_linux"
@@ -532,7 +536,7 @@ async def main() -> None:
             sys.exit(1)
         
         # ── DEMO ACCOUNT VERIFICATION (live mode) ─────────────────
-        if args.live:
+        if args.mode == "live":
             from noema.scripts.check_demo import verify_demo_account
             is_demo, server_name = verify_demo_account()
             if not is_demo:
