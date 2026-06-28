@@ -313,11 +313,11 @@ class PerformanceAggregator:
             recent = known[-10:]
             earlier = known[-20:-10]
             recent_error = sum(
-                (1.0 if h["outcome"] else 0.0 - h["confidence"]) ** 2
+                ((1.0 if h["outcome"] else 0.0) - h["confidence"]) ** 2
                 for h in recent
             ) / len(recent)
             earlier_error = sum(
-                (1.0 if h["outcome"] else 0.0 - h["confidence"]) ** 2
+                ((1.0 if h["outcome"] else 0.0) - h["confidence"]) ** 2
                 for h in earlier
             ) / len(earlier)
             drift = abs(recent_error - earlier_error)

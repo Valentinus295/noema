@@ -66,8 +66,12 @@ class VolatilityResult:
     additional: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def annualized_volatility(self, periods_per_year: int = 252) -> float:
-        """Annualize the unconditional volatility."""
+    def annualized_volatility(self) -> float:
+        """Annualize the unconditional volatility (252 trading days)."""
+        return float(self.unconditional_volatility * np.sqrt(252))
+
+    def annualized_volatility_for(self, periods_per_year: int) -> float:
+        """Annualize with custom periods/year (e.g. 252*24 for hourly forex)."""
         return float(self.unconditional_volatility * np.sqrt(periods_per_year))
 
     @property

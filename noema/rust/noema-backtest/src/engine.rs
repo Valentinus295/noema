@@ -218,7 +218,9 @@ impl BacktestEngine {
         position.realized_pnl = Some(net_pnl);
 
         // Transfer to closed positions
-        let closed = self.positions.remove(position_id);
+        // Use swap_remove for O(1) removal — order doesn't matter for closed positions.
+        // Vec::remove(index) shifts all subsequent IDs, causing position ID instability.
+        let closed = self.positions.swap_remove(position_id);
         self.closed_positions.push(closed);
 
         self.balance += net_pnl;

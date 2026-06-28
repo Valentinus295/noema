@@ -17,7 +17,7 @@ import asyncio
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 import structlog
 
@@ -486,11 +486,26 @@ class GuardianAgent(DeterministicAgent):
 
     # ── Pipeline Integration Methods ────────────────────────────────
 
-    async def check_all(self) -> list[dict[str, Any]]:
+    async def check_all(self, account_state: Optional[dict[str, float]] = None) -> list[dict[str, Any]]:
         """Run ALL kill-switch checks at the start of each trading cycle.
+
+        Args:
+            account_state: Optional dict with balance/equity/margin/daily_pnl/weekly_pnl/spread.
+                          If provided, refreshes GuardianState before checking.
+                          This prevents kill-switches from evaluating stale data.
 
         Returns list of triggered kill-switches. Empty list = all clear.
         """
+        # Refresh state if caller provides current account data
+        if account_state:
+            self.update_account_state(
+                balance=account_state.get("balance", 0.0),
+                equity=account_state.get("equity", 0.0),
+                margin_level=account_state.get("margin_level", 0.0),
+                daily_pnl=account_state.get("daily_pnl", 0.0),
+                weekly_pnl=account_state.get("weekly_pnl", 0.0),
+                spread=account_state.get("spread", 0.0),
+            )
         state = self._get_state()
         triggered: list[dict[str, Any]] = []
         now = datetime.now(timezone.utc)

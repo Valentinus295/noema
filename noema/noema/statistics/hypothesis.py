@@ -370,7 +370,7 @@ def benjamini_hochberg(p_values: list[float], alpha: float = 0.05) -> list[TestR
 
     results = []
     for original_idx, (i, pv) in enumerate(indexed):
-        rank = i + 1
+        rank = original_idx + 1
         # Adjusted p-value
         adj_p = min(pv * m / rank if rank > 0 else pv, 1.0)
         reject = rank <= max_sig_rank and pv <= alpha
