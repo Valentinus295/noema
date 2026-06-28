@@ -19,6 +19,7 @@ from typing import Any
 import structlog
 
 from noema.core.modern_agent import LLMAgent, AgentReport, AgentType
+from noema.core.registry import AgentRegistry
 from noema.core.nim_client import NIMClient, ModelTier
 from noema.core.llm_structured import (
     CIOOutput,
@@ -59,6 +60,7 @@ Rules:
 - Be decisive. Indecision is also a decision (NO_TRADE)."""
 
 
+@AgentRegistry.register("cio", layer="decision", needs_nim=True)
 class CIOAgent(LLMAgent):
     """Agent #1 — LLM-powered final decision maker.
 

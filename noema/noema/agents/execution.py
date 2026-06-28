@@ -12,10 +12,12 @@ from typing import Any
 import structlog
 
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("execution", layer="execution", needs_broker=True)
 class ExecutionAgent(DeterministicAgent):
     """Agent #14 — Trade implementation.
 

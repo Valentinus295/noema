@@ -22,10 +22,12 @@ from noema.analysis.smc import (
     LiquiditySweep,
 )
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("institutional-footprint", layer="analysis")
 class InstitutionalFootprintAgent(DeterministicAgent):
     """Agent #5 — Finds where smart money acted.
 

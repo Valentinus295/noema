@@ -13,10 +13,12 @@ import pandas as pd
 import structlog
 
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("currency-strength", layer="data")
 class CurrencyStrengthAgent(DeterministicAgent):
     """Agent #3 — Ranks currencies by relative strength.
 

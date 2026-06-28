@@ -14,6 +14,7 @@ from typing import Any
 import structlog
 
 from noema.core.modern_agent import LLMAgent, AgentReport, AgentType
+from noema.core.registry import AgentRegistry
 from noema.core.nim_client import NIMClient, ModelTier
 from noema.core.llm_structured import (
     DevilsAdvocateOutput,
@@ -48,6 +49,7 @@ Rules:
 - Consider: What would a losing trader think in this situation?"""
 
 
+@AgentRegistry.register("devils-advocate", layer="decision", needs_nim=True)
 class DevilsAdvocateAgent(LLMAgent):
     """Agent #12 — LLM-powered trade challenger.
 

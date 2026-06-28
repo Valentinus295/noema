@@ -39,36 +39,15 @@ from noema.core.shutdown import (
     load_shutdown_config_from_env,
 )
 
-# ── Agent Imports ────────────────────────────────────────────────────
-# Layer 1: Data agents (deterministic)
-from noema.agents.macro import MacroEconomicAgent
-from noema.agents.currency import CurrencyStrengthAgent
-from noema.agents.session import SessionIntelligenceAgent
-
-# Layer 2: Analysis agents (deterministic)
-from noema.agents.structure import MarketStructureAgent
-from noema.agents.institutional import InstitutionalFootprintAgent
-from noema.agents.sr import SupportResistanceAgent
-from noema.agents.momentum import MomentumAgent
-from noema.agents.price_action import PriceActionAgent
-
-# Layer 3: Decision agents (LLM-powered)
-from noema.agents.thesis import TradeThesisAgent
-from noema.agents.devil import DevilsAdvocateAgent
-from noema.agents.cio import CIOAgent
-
-# Layer 4: Execution agents (deterministic)
-from noema.agents.risk import RiskManagerAgent
-from noema.agents.execution import ExecutionAgent
-
-# Layer 5: Learning agents (LLM-powered)
-from noema.agents.learning import LearningAgent
 
 # Self-learning + journaling + Telegram
 from noema.agents.reflector import ReflectorAgent
 from noema.database.journal import TradeJournal
 from noema.telegram.bot import NoemaTelegramBot
 from noema.telegram.handlers import CommandHandlers
+
+# Agent Registry — auto-discovers agents via @AgentRegistry.register decorators
+from noema.core.registry import AgentRegistry
 
 # Guardian Agent — kill-switches wired into pipeline
 from noema.agents.guardian import GuardianAgent, GuardianState
@@ -348,7 +327,7 @@ async def create_orchestrator(
 
     # ── Guardian Kill-Switches ──────────────────────────────────────
     guardian_state = GuardianState(
-        daily_loss_limit=settings.risk.max_daily_loss * 100,
+        daily_loss_limit_pct=settings.risk.max_daily_loss * 100,
         weekly_loss_limit=settings.risk.max_weekly_loss * 100,
         max_lot_size=settings.risk.max_lot_size,
     )
@@ -381,39 +360,32 @@ async def create_orchestrator(
         event_analyst=event_analyst,
     )
 
-    # Layer 1: Data agents (deterministic, parallel)
-    orch.register_data_agents([
-        MacroEconomicAgent(config=settings),
-        CurrencyStrengthAgent(config=settings),
-        SessionIntelligenceAgent(config=settings),
-    ])
+    # ── Discover & Create Agents via Registry ─────────────────────
+    # Agents self-register via @AgentRegistry.register decorators.
+    # Import all agent modules to trigger registration.
+    AgentRegistry.discover_agents("noema.agents")
+    agents = AgentRegistry.create_all(config=settings, nim_client=nim, broker=broker)
 
-    # Layer 2: Analysis agents (deterministic, parallel)
-    orch.register_analysis_agents([
-        MarketStructureAgent(config=settings),
-        InstitutionalFootprintAgent(config=settings),
-        SupportResistanceAgent(config=settings),
-        MomentumAgent(config=settings),
-        PriceActionAgent(config=settings),
-    ])
+    # Register agents with orchestrator by layer
+    orch.register_data_agents(agents["data"])
+    orch.register_analysis_agents(agents["analysis"])
 
-    # Layer 3: Decision agents (LLM, sequential debate)
+    decision = agents["decision"]
     orch.register_decision_agents(
-        thesis=TradeThesisAgent(config=settings, nim_client=nim),
-        devil=DevilsAdvocateAgent(config=settings, nim_client=nim),
-        cio=CIOAgent(config=settings, nim_client=nim),
+        thesis=decision["thesis"],
+        devil=decision["devil"],
+        cio=decision["cio"],
     )
 
-    # Layer 4: Execution agents (deterministic, sequential)
+    execution = agents["execution"]
     orch.register_execution_agents(
-        risk=RiskManagerAgent(config=settings),
-        execution=ExecutionAgent(config=settings, broker=broker),
+        risk=execution["risk"],
+        execution=execution["execution"],
     )
 
-    # Layer 5: Learning agent (LLM, background)
-    orch.register_learning_agent(
-        LearningAgent(config=settings, nim_client=nim)
-    )
+    # Learning agent (single item in list)
+    if agents["learning"]:
+        orch.register_learning_agent(agents["learning"][0])
 
     # Wire Telegram handlers
     bot = _build_telegram_bot(

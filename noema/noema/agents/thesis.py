@@ -14,6 +14,7 @@ from typing import Any
 import structlog
 
 from noema.core.modern_agent import LLMAgent, AgentReport, AgentType
+from noema.core.registry import AgentRegistry
 from noema.core.nim_client import NIMClient, ModelTier
 from noema.core.llm_structured import (
     TradeThesisOutput,
@@ -46,6 +47,7 @@ Be analytical, not emotional. Focus on evidence, not hope.
 If the evidence is mixed, say so — don't force a trade that isn't there."""
 
 
+@AgentRegistry.register("trade-thesis", layer="decision", needs_nim=True)
 class TradeThesisAgent(LLMAgent):
     """Agent #11 — LLM-powered trade thesis builder.
 

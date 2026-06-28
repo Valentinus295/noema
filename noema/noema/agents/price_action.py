@@ -12,10 +12,12 @@ import structlog
 
 from noema.analysis.candlestick import CandlestickDetector
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("price-action", layer="analysis")
 class PriceActionAgent(DeterministicAgent):
     """Agent #10 — Reads the language of candles.
 

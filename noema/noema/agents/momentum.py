@@ -14,10 +14,12 @@ import structlog
 
 from noema.analysis.technical import TechnicalAnalyzer
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("momentum", layer="analysis")
 class MomentumAgent(DeterministicAgent):
     """Agent #9 — Measures exhaustion.
 

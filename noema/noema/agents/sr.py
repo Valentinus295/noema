@@ -18,6 +18,7 @@ import structlog
 
 from noema.analysis.smc import SMCForecaster, Swing
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +42,7 @@ class Zone:
     is_session_level: bool = False  # Asian/London/NY session extreme
 
 
+@AgentRegistry.register("support-resistance", layer="analysis")
 class SupportResistanceAgent(DeterministicAgent):
     """Agent #6 — Maps reaction zones using JARVIS swing detection.
 

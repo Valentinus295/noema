@@ -14,6 +14,7 @@ from typing import Any
 import structlog
 
 from noema.core.modern_agent import LLMAgent, AgentReport, AgentType
+from noema.core.registry import AgentRegistry
 from noema.core.nim_client import NIMClient, ModelTier
 from noema.core.llm_structured import (
     LearningOutput,
@@ -49,6 +50,7 @@ Rules:
 - If a trade succeeded for the wrong reasons (lucky), note that too."""
 
 
+@AgentRegistry.register("learning", layer="learning", needs_nim=True)
 class LearningAgent(LLMAgent):
     """Agent #17 — LLM-powered post-trade reflection.
 

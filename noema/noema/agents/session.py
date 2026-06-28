@@ -11,6 +11,7 @@ from typing import Any
 import structlog
 
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +32,7 @@ OVERLAPS = {
 }
 
 
+@AgentRegistry.register("session-intelligence", layer="data")
 class SessionIntelligenceAgent(DeterministicAgent):
     """Agent #7 — Understands market timing.
 

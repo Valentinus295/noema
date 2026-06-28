@@ -17,10 +17,12 @@ import structlog
 from noema.analysis.technical import TechnicalAnalyzer
 from noema.analysis.smc import SMCForecaster, SMCReport, StructureEvent, Setup
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("market-structure", layer="analysis")
 class MarketStructureAgent(DeterministicAgent):
     """Agent #4 — Understands the story of price.
 

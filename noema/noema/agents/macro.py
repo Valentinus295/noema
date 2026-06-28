@@ -12,10 +12,12 @@ import structlog
 
 from noema.analysis.fundamental import FundamentalAnalyzer, EconomicEvent, ImpactLevel
 from noema.core.modern_agent import DeterministicAgent, AgentReport
+from noema.core.registry import AgentRegistry
 
 logger = structlog.get_logger(__name__)
 
 
+@AgentRegistry.register("macro-economic", layer="data")
 class MacroEconomicAgent(DeterministicAgent):
     """Agent #2 — Understands the world economy.
 
