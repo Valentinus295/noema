@@ -18,6 +18,7 @@ Key improvements over old orchestrator:
 from __future__ import annotations
 
 import asyncio
+import collections
 import hashlib
 import time
 from dataclasses import dataclass, field
@@ -148,9 +149,9 @@ class ModernOrchestrator:
         self.health_checker = health_checker
         self._current_phase = "idle"
 
-        # Metrics
+        # Metrics (bounded to prevent memory leaks — max 1000 entries)
         self._cycle_count = 0
-        self._total_metrics: list[PipelineMetrics] = []
+        self._total_metrics: collections.deque[PipelineMetrics] = collections.deque(maxlen=1000)
 
         # Register all expected agents for health monitoring
         if health_checker:
@@ -351,12 +352,14 @@ class ModernOrchestrator:
                 metrics.phase_timings["execution"] = (time.monotonic() - phase_start) * 1000
                 record_pipeline_phase_transition("decision", "execution", symbol, metrics.phase_timings["execution"])
 
-            # ── Layer 5: Learning (background) ───────────────────────
+            # ── Layer 5: Learning (background, tracked) ──────────────
             if self._learning_agent:
                 self._current_phase = "learning"
-                asyncio.create_task(
+                learning_task = asyncio.create_task(
                     self._run_learning_phase(symbol, decision, analysis_results)
                 )
+                self._tasks.append(learning_task)
+                learning_task.add_done_callback(self._on_learning_task_done)
 
             metrics.completed_at = time.monotonic()
             self._current_phase = "idle"
@@ -991,6 +994,22 @@ class ModernOrchestrator:
             logger.warning("risk_context_build_failed", error=str(e))
             return None
 
+    # ── Learning Task Callback ────────────────────────────────────────
+
+    def _on_learning_task_done(self, task: asyncio.Task) -> None:
+        """Done callback for learning tasks — log exceptions, remove from tracking."""
+        if task in self._tasks:
+            self._tasks.remove(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            self._logger.error(
+                "learning_task_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
     # ── Lifecycle ────────────────────────────────────────────────────
 
     async def start(self, interval: float = 60.0) -> None:
@@ -1185,7 +1204,7 @@ class ModernOrchestrator:
                 await self._send_telegram_alert(msg)
             elif self._telegram_bot:
                 name = switch_id.replace("_", " ").title()
-                msg = f"🛡 *KILL-SWITCH: {name}*\n\n{reason}\n\n⚠️ Trading halted\."
+                msg = f"🛡 *KILL-SWITCH: {name}*\n\n{reason}\n\n⚠️ Trading halted\\."
                 await self._send_telegram_alert(msg)
 
     async def _send_telegram_news_blackout_alert(self, event_name: str, pair: str, minutes: int = 0) -> None:
@@ -1194,7 +1213,7 @@ class ModernOrchestrator:
             msg = await self._telegram_handlers.send_news_blackout_alert(event_name, pair, minutes)
             await self._send_telegram_alert(msg)
         elif self._telegram_bot:
-            msg = f"📰 *News Blackout Active*\n\nEvent: {event_name}\nPair: {pair}\n\n⚠️ New trades suspended\."
+            msg = f"📰 *News Blackout Active*\n\nEvent: {event_name}\nPair: {pair}\n\n⚠️ New trades suspended\\."
             await self._send_telegram_alert(msg)
 
     # ── Loop ─────────────────────────────────────────────────────────
