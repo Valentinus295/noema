@@ -1,0 +1,52 @@
+# Noema Docker Compose — PostgreSQL (opt-in)
+#
+# This file is auto-loaded by Docker Compose when present alongside docker-compose.yml.
+# PostgreSQL is optional — Noema uses DuckDB + Redis as primary storage.
+# Enable PostgreSQL for B2B scale, multi-process journal writes, or production deployments.
+#
+# Usage:
+#   docker compose up -d          # auto-loads this override
+#   docker compose up -d redis    # start only core services (skip postgres)
+
+version: "3.9"
+
+services:
+  # ── PostgreSQL 16 — Trade Journal (opt-in) ─────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: noema-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-noema}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+      POSTGRES_DB: ${POSTGRES_DB:-noema}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-noema} -d ${POSTGRES_DB:-noema}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - noema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+# ── Volumes ───────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: noema_postgres_data
+    driver: local
