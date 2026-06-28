@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust&logoColor=white)](https://rust-lang.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
-[![Tests](https://img.shields.io/badge/tests-84%2F84-brightgreen)](./noema/tests)
+[![Tests](https://img.shields.io/badge/tests-377%2F377-brightgreen)](./noema/tests)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](./CHANGELOG.md)
 [![Phase](https://img.shields.io/badge/phase-6%20complete-8A2BE2)](./docs/ROADMAP.md)
@@ -97,7 +97,7 @@ Noema is not a black-box chatbot that hallucinates trading decisions. It is stat
 │    │         │  │          │  │          │  │ (OB/FVG/BOS) │    │
 │    └─────────┘  └──────────┘  └──────────┘  └──────────────┘    │
 │                                                                   │
-│    PostgreSQL ── Redis ── ChromaDB ── Prometheus ── Grafana       │
+│    PostgreSQL (optional) ── Redis ── ChromaDB ── Prometheus ── Grafana       │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -106,7 +106,7 @@ Noema is not a black-box chatbot that hallucinates trading decisions. It is stat
 ## Key Features
 
 ### 🧠 Multi-Agent Architecture
-26 specialized agents operating under an **actor-critic pattern** with a deterministic debate engine. 14 actor agents scan for setups; 4 critic agents (Devil's Advocate, CIO, Reflector, Thesis) challenge every signal. The conservative tiebreaker resolves disputes without LLM involvement. Agent votes are weighted by historical accuracy.
+26 specialized agents operating under an **actor-critic pattern** with a deterministic debate engine. 14 actor agents scan for setups; 4 critic agents (Devil's Advocate, CIO, Reflector, Thesis) challenge every signal. The conservative tiebreaker resolves disputes without LLM involvement. Agent votes are weighted by historical accuracy. Agents self-register via `AgentRegistry` — no god object in `main.py`.
 
 ### 📊 Statistical Core
 **44 academic units** from economics and statistics mapped directly to Noema modules. PCA factor exposure, Johansen cointegration, GARCH(1,1) volatility modelling, Monte Carlo P(ruin) simulation, stationary bootstrap inference, survival analysis for trade duration, SPRT sequential testing, Benjamini-Hochberg FDR correction — all deterministic Python with typed outputs.
@@ -114,8 +114,11 @@ Noema is not a black-box chatbot that hallucinates trading decisions. It is stat
 ### 🔒 Anti-Hallucination Architecture
 **Zero LLM in any trade decision.** The LLM (NVIDIA NIM via minimax-m3) provides narrative interpretation of statistical results — it explains *why* in human language. It cannot place orders, modify stops, or change any numeric score. If the LLM is unreachable, the system trades normally on statistical evidence alone. This is prompt-injection containment by design.
 
+### 🔐 Dashboard Security
+Bearer token authentication on all API endpoints. Rate limiting prevents abuse. WebSocket connections require auth handshake. `NOEMA_SECRET_KEY` wired as fallback for `DASHBOARD_API_KEY`. 12 Prometheus alerting rules monitor critical conditions.
+
 ### 🛡️ Guardian — 16+ Kill-Switches
-Real-time protection layer that checks every order before it reaches the broker:
+Real-time protection layer that checks every order before it reaches the broker. `GuardianState` is protected by `asyncio.Lock` (race condition fixed). `check_all()` now accepts an `account_state` refresh to avoid stale data:
 - **Statistical:** Bayesian win-rate posterior floor (Beta prior), SPRT edge test, KS drift (live vs. backtest)
 - **Financial:** Daily/weekly drawdown freeze, margin level gate, spread gate, max lot size cap
 - **Operational:** Heartbeat watchdog, data staleness check, actor/critic team health, news blackout, LLM error circuit breaker, consecutive loss counter, learning-under-drawdown freeze
@@ -127,10 +130,23 @@ FxPesa, FBS, and any MT5 broker. Linux runs MT5 headless through Wine (mt5linux 
 Next.js dashboard with real-time candlestick charts plus Smart Money Concepts (SMC) overlays: **order blocks, fair value gaps (FVG), liquidity sweeps, break of structure (BOS), and change of character (CHoCH)**. Live P&L, agent vote transparency, and risk monitor all in one web interface.
 
 ### 🧪 Self-Learning System
-**4-layer memory architecture** (episodic, semantic, procedural, strategic) feeding 15 learning skills. Genetic strategy evolution via crossover and mutation of successful signal patterns. Post-trade reflection loop updates prior distributions and retrains thresholds. All learning is supervised by the Guardian — learning freezes during drawdowns.
+**4-layer memory architecture** (episodic, semantic, procedural, strategic) feeding 15 learning skills. Genetic strategy evolution via crossover and mutation of successful signal patterns. Post-trade reflection loop updates prior distributions and retrains thresholds. All learning is supervised by the Guardian — learning freezes during drawdowns. Learning tasks are tracked and cancelled on shutdown.
 
 ### 🐳 One-Command Setup
-Everything automated — Python venv, Rust crates, Node.js dashboard, Docker (PostgreSQL + Redis + Prometheus + Grafana), MT5 headless daemon, credential prompts, environment validation. Works on Pop!_OS 24.04, Ubuntu, Windows, and macOS.
+Everything automated — Python venv, Rust crates, Node.js dashboard, Docker (Redis + Prometheus + Grafana), MT5 headless daemon, credential prompts, environment validation. Works on Pop!_OS 24.04, Ubuntu, Windows, and macOS.
+
+### 🐙 Docker Compose (Lean Default)
+Default stack is **Redis + Prometheus + Grafana** only. PostgreSQL is optional via override:
+```bash
+# Default (lean): Redis + monitoring
+docker compose up -d
+
+# With PostgreSQL (B2B scale)
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+```
+
+### 📦 Reproducible Builds
+`uv.lock` and `Cargo.lock` ensure deterministic dependency resolution. `mypy` type checking in CI (gradual adoption).
 
 ---
 
@@ -142,37 +158,38 @@ curl -fsSL https://raw.githubusercontent.com/Valentinus295/noema/main/noema-setu
 
 This single command:
 1. Clones the repository
-2. Detects your OS and configures Wine/MT5 accordingly
-3. Creates a Python virtual environment with all dependencies
-4. Prompts for credentials (NIM API key, MT5 login, database URLs)
-5. Builds Rust crates (noema-data, noema-backtest, noema-smc)
-6. Installs Node.js dashboard dependencies
-7. Sets up Docker services (PostgreSQL, Redis, Prometheus, Grafana)
-8. Tests MT5 connectivity
-9. Opens the dashboard in your browser
+2. Detects your OS (Linux, Windows, macOS) and configures Wine/MT5 accordingly
+3. Installs all dependencies (Python, Rust, Node.js, Wine)
+4. Prompts for credentials (MT5 login, NIM API key)
+5. Builds Rust crates + dashboard
+6. Auto-launches MT5 headless, dashboard, and trading engine
+
+Use `--no-launch` to skip auto-launch:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Valentinus295/noema/main/noema-setup | bash -s -- --no-launch
+```
 
 ---
 
 ## Quick Start
 
-After setup completes, one command runs everything:
+After installation (which auto-launches everything), manage the system with:
 
 ```bash
-noema start
+noema start      # Start everything (MT5, dashboard, trading)
+noema stop       # Graceful shutdown (trading → dashboard → MT5)
+noema status     # Live positions, P&L, Guardian health, uptime
+noema logs       # Tail real-time logs
+noema dashboard  # Start dashboard only
+noema live       # LIVE DEMO trading (real MT5 data, demo account)
+noema demo-check # Verify demo account (no real money allowed)
 ```
 
-MT5 starts headless → dashboard opens in browser → trading begins. That's it.
-
-```bash
-noema status   # Live positions, P&L, Guardian health, uptime
-noema logs     # Tail real-time logs
-noema stop     # Graceful shutdown (trading → dashboard → MT5)
-```
+MT5 starts headless → dashboard opens in browser → trading begins.
 
 **Manual control:**
 
 ```bash
-noema dashboard       # Start dashboard only (if already running)
 python -m noema.main --mode demo --mt5-auto   # Trading without CLI
 python -m noema.main --mode analyze           # Read-only analysis
 ```
@@ -186,13 +203,13 @@ python -m noema.main --mode analyze           # Read-only analysis
 | **Statistics & Agents** | Python 3.11+ | Deterministic pipeline: stats, econometrics, agent debate, Guardian |
 | **Performance** | Rust | Fast data ingestion (Arrow), backtesting engine, SMC pattern detection |
 | **Dashboard** | TypeScript / Next.js | React frontend + TradingView charts + live P&L websocket |
-| **Database** | PostgreSQL | Trade journal, config hashes, agent memory |
+| **Database** | PostgreSQL *(optional)* | Trade journal, config hashes, agent memory (docker-compose.override.yml) |
 | **Cache & Pub/Sub** | Redis | Price caching, inter-agent messaging, rate limiting |
 | **Vector Store** | ChromaDB | Market structure pattern similarity (v1.0) |
 | **LLM** | NVIDIA NIM (minimax-m3) | Narrative interpretation only — zero decision authority |
 | **Observability** | Prometheus + Grafana | Metrics, alerting, P&L dashboards |
 | **Tracing** | OpenTelemetry + Langfuse | Agent decision traces, LLM token monitoring |
-| **Container** | Docker Compose | PostgreSQL, Redis, Prometheus, Grafana |
+| **Container** | Docker Compose | Redis, Prometheus, Grafana (default); PostgreSQL optional |
 
 ---
 
@@ -246,9 +263,18 @@ See [docs/CURRICULUM_MAPPING.md](./docs/CURRICULUM_MAPPING.md) for the complete 
 - [x] MT5 headless daemon for Linux
 - [x] Rust crates: noema-data, noema-backtest, noema-smc
 - [x] Next.js dashboard with TradingView charts + SMC overlays
-- [x] Docker services (PostgreSQL, Redis, Prometheus, Grafana)
-- [x] One-command setup script
-- [x] 84 passing tests covering core, agents, broker, analysis, data, backtest
+- [x] Docker services (Redis, Prometheus, Grafana; PostgreSQL optional)
+- [x] One-command setup with auto-launch
+- [x] 377 tests, 883 assertions across 14 files
+- [x] AgentRegistry with self-registration (no god object)
+- [x] TypedMessage + MessageBus with priority queue + dead letter queue
+- [x] GuardianState protected by asyncio.Lock
+- [x] Memory-bounded metrics (deque maxlen=1000) and audit log (max 500)
+- [x] Dashboard Bearer token auth + rate limiting + WebSocket auth
+- [x] 12 Prometheus alerting rules
+- [x] uv.lock + Cargo.lock for reproducible builds
+- [x] mypy type checking in CI
+- [x] 6 critical/major bug fixes: Brier score operator precedence, Rust backtest position ID instability, Guardian stale state, BH rank variable shadowing, annualized_volatility param bug, removed broken from_critic_votes
 
 ### Next — v1.0
 - [ ] Live MT5 paper trading on FxPesa demo (30-day validation)
@@ -272,7 +298,7 @@ See [docs/CURRICULUM_MAPPING.md](./docs/CURRICULUM_MAPPING.md) for the complete 
 
 ## Modules (Deployed)
 
-The following modules are operational and verified as of v0.2.0 (2026-06-24):
+The following modules are operational and verified as of v0.2.0 (2026-06-28):
 
 | Module | Files | Lines | Key Techniques |
 |--------|-------|-------|---------------|
@@ -280,10 +306,11 @@ The following modules are operational and verified as of v0.2.0 (2026-06-24):
 | **Econometrics** | 6 | ~3,200 | Time Series, Cointegration, Volatility, Regression, Panel, Causal Inference |
 | **Agents** | 20 | ~7,500 | Actor-critic, debate engine, conservative tiebreaker, 26 agents |
 | **Guardian** | 1 | ~700 | 16+ kill-switches, drawdown freeze, statistical edge checks |
-| **Core** | 4 | ~3,000 | Typed messages, types, configuration, Rust bridge |
+| **Core** | 4 | ~3,000 | AgentRegistry (self-registration), TypedMessage + MessageBus (priority queue + dead letter queue), configuration, Rust bridge |
 | **Broker** | 6 | ~4,500 | MT5 Linux/Wine, FBS, paper trading, lot protection |
-| **Dashboard** | — | — | Next.js, TradingView charts, SMC overlays, live P&L |
+| **Dashboard** | — | — | Next.js, TradingView charts, SMC overlays, live P&L, Bearer token auth |
 | **Rust Crates** | 3 | ~2,000 | Data ingestion (Arrow), backtesting engine, SMC pattern detection |
+| **Quality** | 14 | — | 377 tests, 883 assertions, mypy CI, uv.lock, Cargo.lock |
 
 ---
 
