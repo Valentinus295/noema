@@ -275,7 +275,7 @@ if [ "$OS" = "Linux" ]; then
     # NOTE: libta-lib-dev is NOT in standard apt repos — built from source below
     info "Installing build tools and libraries..."
     sudo apt-get install -y -qq build-essential cmake pkg-config python3-venv \
-        libssl-dev libffi-dev wget curl 2>&1 | tail -3
+        libssl-dev libffi-dev wget curl libtool automake autoconf 2>&1 | tail -3
 
     if command -v cmake &> /dev/null; then
         success "Build tools installed (gcc, cmake, pkg-config)"
@@ -362,7 +362,7 @@ if [ "$OS" = "Linux" ]; then
                 # Source build failed — try pip with pre-built wheel as fallback
                 warn "TA-Lib source build failed (exit code: $TA_LIB_EXIT)"
                 info "Trying pip install with pre-built wheel as fallback..."
-                if pip install TA-Lib 2>&1 | tail -3; then
+                if pip install --break-system-packages TA-Lib 2>&1 | tail -3; then
                     success "TA-Lib installed via pip (pre-built wheel)"
                 else
                     warn "TA-Lib installation failed — continuing setup without it"
@@ -473,11 +473,11 @@ elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
         success "TA-Lib Python package already installed"
     else
         info "Installing TA-Lib via pip (pre-built Windows wheel from PyPI)..."
-        if pip install TA-Lib 2>&1 | tail -3; then
+        if pip install --break-system-packages TA-Lib 2>&1 | tail -3; then
             success "TA-Lib installed from PyPI wheel"
         else
             warn "TA-Lib pip install failed — trying with --only-binary"
-            if pip install --only-binary :all: TA-Lib 2>&1 | tail -3; then
+            if pip install --break-system-packages --only-binary :all: TA-Lib 2>&1 | tail -3; then
                 success "TA-Lib installed (binary wheel)"
             else
                 warn "TA-Lib could not be installed from PyPI"
