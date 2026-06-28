@@ -289,34 +289,88 @@ if [ "$OS" = "Linux" ]; then
         success "TA-Lib C library already installed (skipping build)"
     else
         info "Building TA-Lib from source (not in apt repos)..."
-        # Refresh sudo timestamp so make install doesn't silently fail
-        sudo -v 2>/dev/null || true
-        TA_BUILD_DIR=$(mktemp -d)
-        (
-            cd "$TA_BUILD_DIR"
-            wget -q http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz || {
-                wget -q https://github.com/TA-Lib/ta-lib/releases/download/v0.4.0/ta-lib-0.4.0-src.tar.gz || {
-                    echo "TA-Lib download failed"
-                    exit 1
-                }
-            }
-            tar xzf ta-lib-0.4.0-src.tar.gz
-            cd ta-lib/
-            ./configure --prefix=/usr > /dev/null 2>&1
-            make -j"$(nproc)" > /dev/null 2>&1
-            sudo make install > /dev/null 2>&1 || { echo "TA-Lib install failed"; exit 1; }
-            sudo ldconfig > /dev/null 2>&1
-        )
-        rm -rf "$TA_BUILD_DIR"
 
-        # Verify: check both ldconfig cache AND file existence
-        if ldconfig -p 2>/dev/null | grep -q libta_lib; then
-            success "TA-Lib C library built and installed"
-        elif [ -f /usr/lib/libta_lib.so ] || [ -f /usr/local/lib/libta_lib.so ] || ls /usr/lib/libta_lib* >/dev/null 2>&1; then
-            success "TA-Lib C library built (found on disk)"
-        else
-            warn "TA-Lib C library build may have failed — pip TA-Lib will fail if missing"
-            info "Manual fix: https://github.com/TA-Lib/ta-lib#build-from-source"
+        # Pre-check: ensure sudo works BEFORE the build starts
+        # (sudo make install would hang silently if password is needed)
+        SUDO_OK=true
+        if ! sudo -v 2>/dev/null; then
+            warn "sudo requires a password or is unavailable"
+            warn "TA-Lib build will be skipped — pip TA-Lib will fail later"
+            info "Fix: run 'sudo -v' first, then re-run this script"
+            info "Or install TA-Lib manually: https://github.com/TA-Lib/ta-lib#build-from-source"
+            SUDO_OK=false
+        fi
+
+        if [ "$SUDO_OK" = "true" ]; then
+            TA_BUILD_DIR=$(mktemp -d)
+            TA_LIB_EXIT=0
+            # Use '|| TA_LIB_EXIT=$?' to prevent set -e from killing the script
+            (   set -e
+                cd "$TA_BUILD_DIR"
+
+                # Download TA-Lib source with progress and timeout
+                info "Downloading TA-Lib source..."
+                if ! wget --timeout=30 --tries=3 --progress=dot:mega \
+                    http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz 2>&1 | tail -2; then
+                    warn "SourceForge download failed, trying GitHub mirror..."
+                    if ! wget --timeout=30 --tries=3 --progress=dot:mega \
+                        https://github.com/TA-Lib/ta-lib/releases/download/v0.4.0/ta-lib-0.4.0-src.tar.gz 2>&1 | tail -2; then
+                        echo "ERROR: TA-Lib download failed from both sources"
+                        exit 1
+                    fi
+                fi
+                success "TA-Lib source downloaded"
+
+                # Extract
+                info "Extracting TA-Lib source..."
+                tar xzf ta-lib-0.4.0-src.tar.gz
+                cd ta-lib/
+
+                # Configure with timeout
+                info "Configuring TA-Lib (timeout: 120s)..."
+                if ! timeout 120 ./configure --prefix=/usr 2>&1 | tail -3; then
+                    echo "ERROR: TA-Lib configure failed or timed out"
+                    exit 1
+                fi
+                success "TA-Lib configured"
+
+                # Build with timeout and progress
+                info "Building TA-Lib ($(nproc) cores, timeout: 300s)..."
+                if ! timeout 300 make -j"$(nproc)" 2>&1 | tail -3; then
+                    echo "ERROR: TA-Lib build failed or timed out"
+                    exit 1
+                fi
+                success "TA-Lib compiled"
+
+                # Install with timeout
+                info "Installing TA-Lib to /usr (timeout: 60s)..."
+                if ! timeout 60 sudo make install 2>&1 | tail -3; then
+                    echo "ERROR: TA-Lib install failed or timed out"
+                    exit 1
+                fi
+                sudo ldconfig 2>&1 | tail -1
+                success "TA-Lib installed"
+            ) || TA_LIB_EXIT=$?
+            rm -rf "$TA_BUILD_DIR"
+
+            # Verify: check both ldconfig cache AND file existence
+            if [ "$TA_LIB_EXIT" -eq 0 ] && ldconfig -p 2>/dev/null | grep -q libta_lib; then
+                success "TA-Lib C library built and installed"
+            elif [ "$TA_LIB_EXIT" -eq 0 ] && { [ -f /usr/lib/libta_lib.so ] || [ -f /usr/local/lib/libta_lib.so ] || ls /usr/lib/libta_lib* >/dev/null 2>&1; }; then
+                success "TA-Lib C library built (found on disk)"
+            else
+                # Source build failed — try pip with pre-built wheel as fallback
+                warn "TA-Lib source build failed (exit code: $TA_LIB_EXIT)"
+                info "Trying pip install with pre-built wheel as fallback..."
+                if pip install TA-Lib 2>&1 | tail -3; then
+                    success "TA-Lib installed via pip (pre-built wheel)"
+                else
+                    warn "TA-Lib installation failed — continuing setup without it"
+                    info "Some features (technical indicators) will be limited"
+                    info "Manual fix later: https://github.com/TA-Lib/ta-lib#build-from-source"
+                    info "Then: pip install TA-Lib"
+                fi
+            fi
         fi
     fi
 
