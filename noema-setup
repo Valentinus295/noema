@@ -1047,7 +1047,7 @@ if [ "$DOCKER_READY" = true ]; then
     fi
 fi
 
-# ── Step 8: MT5 Connection Test ──────────────────────────────
+# ── Step 8: MT5 Connection Test + EA Setup ─────────────────────
 section "Step 8: MT5 Connection Test"
 
 if [ "$NEED_WINE" = "true" ]; then
@@ -1076,54 +1076,71 @@ if [ "$NEED_WINE" = "true" ]; then
         PASS_ALL=false
     fi
 
-    # 3. Check if MT5 is running
-    if command -v wine &> /dev/null; then
-        if pgrep -a wineserver &> /dev/null; then
-            MT5_RUNNING=true
-            success "MT5 process: RUNNING"
-        else
-            MT5_RUNNING=false
-            warn "MT5 process: NOT RUNNING — start with: python -m noema.scripts.mt5_daemon start"
-        fi
+    # 3. Test RPyC bridge — if not listening, auto-start MT5 windowed for EA attachment
+    RPYC_OK=false
+    if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/18812" 2>/dev/null; then
+        success "RPyC bridge (port 18812): LISTENING"
+        RPYC_OK=true
     else
-        MT5_RUNNING=false
-        warn "wine not found — can't check MT5 process"
-    fi
+        warn "RPyC bridge (port 18812): NOT LISTENING"
+        echo ""
+        echo -e "  ${YELLOW}${BOLD}══ FIRST RUN SETUP ══${NC}"
+        echo -e "  ${CYAN}The mt5linux EA needs to be attached to a chart (one-time setup).${NC}"
+        echo -e "  ${CYAN}MT5 will open in a window — attach the EA, then close MT5.${NC}"
+        echo -e "  ${CYAN}After this, all future runs will be automatic.${NC}"
+        echo ""
+        read -r -p "  Press ENTER to open MT5 for EA setup (or 's' to skip): " EA_SETUP_CHOICE < /dev/tty
 
-    # 4. Test RPyC port if MT5 is running
-    if [ "$MT5_RUNNING" = "true" ]; then
-        if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/18812" 2>/dev/null; then
-            success "RPyC bridge (port 18812): LISTENING — Noema can connect!"
-        else
-            fail "RPyC bridge (port 18812): NOT LISTENING"
-            echo -e "    ${YELLOW}The mt5linux EA must be attached to a chart for the bridge to work.${NC}"
-            echo -e "    ${YELLOW}IMPORTANT: First run MUST be windowed (not headless) so you can attach the EA.${NC}"
-            echo -e "    ${YELLOW}After attaching once, MT5 remembers it for future headless runs.${NC}"
-            echo -e "    ${CYAN}Steps:${NC}"
-            echo -e "    ${CYAN}  1. Run: python -m noema.scripts.mt5_daemon start --visible${NC}"
-            echo -e "    ${CYAN}  2. In MT5: Navigator (Ctrl+N) → Expert Advisors → double-click mt5linux${NC}"
-            echo -e "    ${CYAN}  3. Attach to EURUSD chart, check 'Allow Algo Trading', click OK${NC}"
-            echo -e "    ${CYAN}  4. Close MT5 — profile is saved${NC}"
-            echo -e "    ${CYAN}  5. Run: noema start — EA auto-loads from saved profile${NC}"
-            echo -e "    ${YELLOW}Or run: noema setup-mt5-ea${NC}"
-            
-            # Auto-retry: wait 30s for user to attach EA
-            info "Waiting 30s for EA to be attached..."
-            for i in $(seq 1 6); do
+        if [ "$EA_SETUP_CHOICE" != "s" ] && [ "$EA_SETUP_CHOICE" != "S" ]; then
+            # Start MT5 in windowed mode
+            info "Starting MT5 with window..."
+            export DISPLAY=":${DISPLAY:-0}"
+            activate_venv
+            python3 -m noema.scripts.mt5_daemon start --visible 2>/dev/null &
+            MT5_PID=$!
+            sleep 5
+
+            echo ""
+            echo -e "  ${GREEN}${BOLD}MT5 is opening. Please:${NC}"
+            echo -e "  ${CYAN}  1. In MT5: Press Ctrl+N (Navigator)${NC}"
+            echo -e "  ${CYAN}  2. Expand 'Expert Advisors'${NC}"
+            echo -e "  ${CYAN}  3. Double-click 'mt5linux'${NC}"
+            echo -e "  ${CYAN}  4. Attach to ANY chart (e.g. EURUSD)${NC}"
+            echo -e "  ${CYAN}  5. Check 'Allow Algo Trading' → Click OK${NC}"
+            echo -e "  ${CYAN}  6. You should see 'mt5linux' in the top-right corner of the chart${NC}"
+            echo -e "  ${CYAN}  7. Close MT5 (profile is saved automatically)${NC}"
+            echo ""
+
+            # Wait for RPyC bridge to become available
+            info "Waiting for EA to be attached (checking every 5s for 2 minutes)..."
+            for i in $(seq 1 24); do
                 sleep 5
                 if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/18812" 2>/dev/null; then
-                    success "RPyC bridge (port 18812): NOW LISTENING — EA attached!"
-                    PASS_ALL=true
+                    success "RPyC bridge (port 18812): LISTENING — EA attached successfully!"
+                    RPYC_OK=true
                     break
                 fi
-                echo -ne "  ${CYAN}⏳ $((30 - i*5))s...${NC}  "
+                REMAINING=$((120 - i*5))
+                echo -ne "  ${CYAN}⏳ ${REMAINING}s remaining...${NC}  "
             done
             echo ""
-            if [ "$PASS_ALL" != "true" ]; then
-                warn "RPyC bridge still not listening — will retry on next noema start"
+
+            if [ "$RPYC_OK" = "true" ]; then
+                # Stop MT5 — profile is saved
+                info "EA attached. Stopping MT5 (profile saved)..."
+                python3 -m noema.scripts.mt5_daemon stop 2>/dev/null || true
+                sleep 2
+                success "Setup complete. Future runs will auto-load the EA."
+            else
+                warn "EA not detected after 2 minutes."
+                echo -e "  ${YELLOW}You can:${NC}"
+                echo -e "  ${CYAN}  a. Keep trying — run: python -m noema.scripts.mt5_daemon start --visible${NC}"
+                echo -e "  ${CYAN}  b. Continue without EA — some features will be limited${NC}"
             fi
-            PASS_ALL=false
+        else
+            info "Skipping EA setup — you can do it later with: python -m noema.scripts.mt5_daemon start --visible"
         fi
+        PASS_ALL=false
     fi
 
     # 5. Summary
@@ -1149,55 +1166,19 @@ fi
 section "Step 8.5: MetaTrader 5 Auto-Start"
 
 if [ "$NEED_WINE" = "true" ]; then
-    # ═══════════════════════════════════════════════════════════
-    # Linux: Wine-based MT5 with headless option
-    # ═══════════════════════════════════════════════════════════
+    # Auto-set headless mode (EA was attached in Step 8 if needed)
     echo ""
-    echo -e "  ${YELLOW}${BOLD}Would you like MT5 to start automatically in the background?${NC}"
-    echo -e "    ${CYAN}1${NC}) Yes — headless (no window, recommended)"
-    echo -e "    ${CYAN}2${NC}) Yes — with window (for monitoring)"
-    echo -e "    ${CYAN}3${NC}) No — I'll start MT5 manually"
-    read -r -p "  Choose [1-3]: " MT5_AUTO_CHOICE < /dev/tty
-
-    case "$MT5_AUTO_CHOICE" in
-        1)
-            HEADLESS=true
-            echo "Noema_MT5_HEADLESS=true" >> .env
-            echo "Noema_MT5_STARTUP_WAIT=120" >> .env
-            set -a; source .env 2>/dev/null; set +a
-            echo ""
-            echo -e "  → Starting MT5 headless..."
-            activate_venv
-            if python3 -m noema.scripts.mt5_daemon start 2>/dev/null; then
-                success "MT5 running in background — Noema will auto-connect"
-            else
-                warn "MT5 headless start had issues — check xvfb-run: sudo apt install xvfb"
-                info "You can start MT5 manually later: python -m noema.scripts.mt5_daemon start"
-            fi
-            ;;
-        2)
-            echo "Noema_MT5_HEADLESS=false" >> .env
-            echo "Noema_MT5_STARTUP_WAIT=120" >> .env
-            set -a; source .env 2>/dev/null; set +a
-            echo ""
-            echo -e "  → Starting MT5 with window..."
-            # Ensure DISPLAY is set for Wine windowed mode
-            export DISPLAY=":${DISPLAY:-0}"
-            activate_venv
-            if python3 -m noema.scripts.mt5_daemon start --visible 2>/dev/null; then
-                success "MT5 started with window — attach mt5linux EA to EURUSD chart"
-                echo -e "  ${CYAN}In MT5: Navigator → Expert Advisors → mt5linux → attach to EURUSD${NC}"
-            else
-                warn "MT5 window start had issues — try: DISPLAY=:0 wine terminal64.exe"
-            fi
-            ;;
-        3)
-            echo "Noema_MT5_HEADLESS=false" >> .env
-            echo ""
-            info "MT5 manual start. Run before trading:"
-            info "  python -m noema.scripts.mt5_daemon start"
-            ;;
-    esac
+    # Check if RPyC is working — if yes, set headless; if no, set manual
+    if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/18812" 2>/dev/null; then
+        echo "Noema_MT5_HEADLESS=true" >> .env
+        echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+        success "MT5 auto-start: headless mode (EA is attached, bridge is working)"
+    else
+        echo "Noema_MT5_HEADLESS=true" >> .env
+        echo "Noema_MT5_STARTUP_WAIT=120" >> .env
+        success "MT5 auto-start: headless mode (will auto-start with noema start)"
+        info "If EA is not attached, run: python -m noema.scripts.mt5_daemon start --visible"
+    fi
 
 elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
     # ═══════════════════════════════════════════════════════════
