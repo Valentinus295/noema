@@ -1012,8 +1012,105 @@ class ModernOrchestrator:
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
+    async def start_with_loops(
+        self,
+        interval: float = 60.0,
+        loop_manager: Any = None,
+    ) -> None:
+        """Start the orchestrator using the LoopManager architecture.
+
+        Creates managed loops (safety, trading, learning, calibration, regime)
+        and starts them via LoopManager. Falls back to legacy start() if
+        loop_manager is not provided.
+        """
+        if loop_manager is None:
+            # Legacy mode — use the old while-True loop
+            await self.start(interval)
+            return
+
+        from noema.core.loop_manager import LoopManager
+        from noema.core.loop_ledger import LoopLedger
+        from noema.loops.safety_loop import SafetyLoop
+        from noema.loops.trading_loop import TradingCycleLoop
+        from noema.loops.learning_loop import LearningLoop
+        from noema.loops.calibration_loop import CalibrationLoop
+        from noema.loops.regime_loop import RegimeLoop
+
+        self._running = True
+        symbols = self.config.trading.pairs if hasattr(self.config, "trading") else ["EURUSD"]
+
+        # ── Start broker health monitor (if broker supports it) ──
+        await self._start_broker_health_monitor(symbols)
+
+        # ── Register loops ──────────────────────────────────────────
+        self._loop_manager = loop_manager
+
+        # Safety Loop (priority 0)
+        safety = SafetyLoop(
+            guardian=self.guardian,
+            guardian_state=self.guardian_state,
+            on_kill_switch=self._handle_loop_kill_switch,
+        )
+        loop_manager.register(safety)
+
+        # Trading Loop (priority 1)
+        trading = TradingCycleLoop(
+            orchestrator=self,
+            symbols=symbols,
+            cadence_seconds=interval,
+        )
+        loop_manager.register(trading)
+
+        # Learning Loop (priority 2)
+        learning = LearningLoop(
+            orchestrator=self,
+            learning_agent=self._learning_agent,
+        )
+        loop_manager.register(learning)
+
+        # Calibration Loop (priority 2)
+        calibration = CalibrationLoop(orchestrator=self)
+        loop_manager.register(calibration)
+
+        # Regime Detection Loop (priority 2)
+        regime = RegimeLoop(orchestrator=self)
+        loop_manager.register(regime)
+
+        # ── Create ledger ───────────────────────────────────────────
+        self._loop_ledger = LoopLedger(loop_manager)
+
+        logger.info(
+            "orchestrator_loop_started",
+            symbols=symbols,
+            interval=interval,
+            loop_count=len(loop_manager.loops),
+            data_agents=len(self._data_agents),
+            analysis_agents=len(self._analysis_agents),
+        )
+
+        # Start all loops (blocks until all loops stop)
+        await loop_manager.start_all()
+
+    async def _handle_loop_kill_switch(self, triggered: list[dict[str, Any]]) -> None:
+        """Handle kill-switch triggers from the Safety Loop.
+
+        Pauses all lower-priority loops and sends Telegram alerts.
+        """
+        if self._loop_manager:
+            # Pause all loops except safety (priority 0)
+            self._loop_manager.pause_lower_priority(0)
+
+        # Send Telegram alert
+        switch_ids = [t.get("id", "unknown") for t in triggered]
+        await self._send_telegram_killswitch_alert(triggered)
+
+        logger.critical(
+            "loop_kill_switch_activated",
+            switches=switch_ids,
+        )
+
     async def start(self, interval: float = 60.0) -> None:
-        """Start the orchestrator loop."""
+        """Start the orchestrator loop (legacy mode)."""
         self._running = True
         symbols = self.config.trading.pairs if hasattr(self.config, "trading") else ["EURUSD"]
 
@@ -1033,7 +1130,12 @@ class ModernOrchestrator:
         )
 
     async def stop(self) -> None:
+        """Stop the orchestrator (legacy or loop-managed mode)."""
         self._running = False
+
+        # ── Stop loop manager if active ──
+        if hasattr(self, "_loop_manager") and self._loop_manager:
+            self._loop_manager.stop_all()
 
         # ── Stop health monitor first ──
         await self._stop_broker_health_monitor()
@@ -1044,6 +1146,16 @@ class ModernOrchestrator:
         self._tasks.clear()
         await self.nim.close()
         logger.info("orchestrator_stopped", cycles=self._cycle_count)
+
+    @property
+    def loop_ledger(self) -> Any:
+        """Return the LoopLedger for dashboard access, or None."""
+        return getattr(self, "_loop_ledger", None)
+
+    @property
+    def loop_manager(self) -> Any:
+        """Return the LoopManager, or None if using legacy mode."""
+        return getattr(self, "_loop_manager", None)
 
     # ── Broker Health Monitor ────────────────────────────────────────
 

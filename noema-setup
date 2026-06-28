@@ -605,10 +605,11 @@ else
     info "Using pip"
     python3 -m venv .venv
     activate_venv
-    pip install --upgrade pip
+    VENV_PIP=".venv/bin/pip"
+    $VENV_PIP install --upgrade pip
     # Install core deps + mt5linux (Linux only)
-    pip install -e ".[dev]"
-    [ "$NEED_WINE" = "true" ] && pip install mt5linux && success "mt5linux installed (Linux MT5 bridge)"
+    $VENV_PIP install -e ".[dev]"
+    [ "$NEED_WINE" = "true" ] && $VENV_PIP install mt5linux && success "mt5linux installed (Linux MT5 bridge)"
     success "Python dependencies installed via pip (incl. mt5linux for Linux MT5)"
 fi
 
@@ -1095,8 +1096,31 @@ if [ "$NEED_WINE" = "true" ]; then
             success "RPyC bridge (port 18812): LISTENING — Noema can connect!"
         else
             fail "RPyC bridge (port 18812): NOT LISTENING"
-            echo -e "    ${YELLOW}  Fix: Ensure mt5linux EA is attached to a chart in MT5${NC}"
-            echo -e "    ${YELLOW}  Open MT5 → Navigator → Experts → double-click mt5linux → attach to EURUSD${NC}"
+            echo -e "    ${YELLOW}The mt5linux EA must be attached to a chart for the bridge to work.${NC}"
+            echo -e "    ${YELLOW}After MT5 opens:${NC}"
+            echo -e "    ${CYAN}  1. Open Navigator (Ctrl+N in MT5)${NC}"
+            echo -e "    ${CYAN}  2. Expand 'Expert Advisors'${NC}"
+            echo -e "    ${CYAN}  3. Double-click 'mt5linux'${NC}"
+            echo -e "    ${CYAN}  4. Attach to EURUSD chart${NC}"
+            echo -e "    ${CYAN}  5. Check 'Allow Algo Trading' → Click OK${NC}"
+            echo -e "    ${CYAN}  6. Bridge starts automatically on port 18812${NC}"
+            echo -e "    ${YELLOW}Or run: noema setup-mt5-ea${NC}"
+            
+            # Auto-retry: wait 30s for user to attach EA
+            info "Waiting 30s for EA to be attached..."
+            for i in $(seq 1 6); do
+                sleep 5
+                if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/18812" 2>/dev/null; then
+                    success "RPyC bridge (port 18812): NOW LISTENING — EA attached!"
+                    PASS_ALL=true
+                    break
+                fi
+                echo -ne "  ${CYAN}⏳ $((30 - i*5))s...${NC}  "
+            done
+            echo ""
+            if [ "$PASS_ALL" != "true" ]; then
+                warn "RPyC bridge still not listening — will retry on next noema start"
+            fi
             PASS_ALL=false
         fi
     fi
@@ -1486,7 +1510,11 @@ fi
 # Also install via pip if editable install was done
 if [ -f "pyproject.toml" ] && [ -d ".venv" ]; then
     activate_venv
-    pip install -e . 2>&1 | tail -1 || true
+    if [ -f ".venv/bin/pip" ]; then
+        .venv/bin/pip install -e . 2>&1 | tail -1 || true
+    else
+        pip install --break-system-packages -e . 2>&1 | tail -1 || true
+    fi
     success "Python package installed (editable)"
 fi
 
@@ -1536,7 +1564,12 @@ API_PORT=8000
 if [ -f dashboard/server/requirements.txt ]; then
     info "Installing dashboard API dependencies..."
     activate_venv
-    pip install -r dashboard/server/requirements.txt 2>&1 | tail -1
+    # Use venv pip explicitly (PEP 668 compliance)
+    if [ -f ".venv/bin/pip" ]; then
+        .venv/bin/pip install -r dashboard/server/requirements.txt 2>&1 | tail -1
+    else
+        pip install --break-system-packages -r dashboard/server/requirements.txt 2>&1 | tail -1
+    fi
     success "Dashboard API dependencies installed"
 fi
 

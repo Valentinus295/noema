@@ -837,6 +837,41 @@ async def api_chart_data(
     return generate_chart_data(sym_upper, timeframe, bars)
 
 
+# ── Loop Health Endpoint ────────────────────────────────────────────
+
+_loop_ledger = None  # Set by application startup
+
+
+def set_loop_ledger(ledger: Any) -> None:
+    """Set the LoopLedger instance for the /api/loops/health endpoint."""
+    global _loop_ledger
+    _loop_ledger = ledger
+
+
+@app.get("/api/loops/health")
+async def api_loops_health():
+    """Get loop architecture health metrics.
+
+    Returns per-loop state, tick counts, error rates, and
+    an aggregate summary for dashboard consumption.
+    """
+    if _loop_ledger is None:
+        return {
+            "loops": {},
+            "summary": {
+                "total_loops": 0,
+                "running": 0,
+                "errored": 0,
+                "halted": 0,
+                "paused": 0,
+                "overall_health": "unavailable",
+            },
+            "timestamp": time.time(),
+            "message": "Loop architecture not initialized",
+        }
+    return _loop_ledger.get_dashboard_data()
+
+
 # ── WebSocket Endpoint ──────────────────────────────────────────────
 
 @app.websocket("/ws")
