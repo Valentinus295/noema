@@ -195,6 +195,10 @@ def start_mt5(
             return None
         cmd = ["xvfb-run", "-a", "wine", str(exe), "/portable"]
     else:
+        # Windowed mode — ensure DISPLAY is set for Wine
+        env = os.environ.copy()
+        if "DISPLAY" not in env:
+            env["DISPLAY"] = ":0"
         cmd = ["wine", str(exe), "/portable"]
 
     if config_path:
@@ -210,12 +214,19 @@ def start_mt5(
     logger.info("starting_mt5", headless=headless, cmd=" ".join(cmd))
 
     try:
-        process = subprocess.Popen(
-            cmd,
+        popen_kwargs = dict(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # Detach from parent terminal
         )
+        # Pass env with DISPLAY for windowed mode
+        if not headless:
+            mt5_env = os.environ.copy()
+            if "DISPLAY" not in mt5_env:
+                mt5_env["DISPLAY"] = ":0"
+            popen_kwargs["env"] = mt5_env
+
+        process = subprocess.Popen(cmd, **popen_kwargs)
         # Write PID file
         PID_FILE.parent.mkdir(parents=True, exist_ok=True)
         PID_FILE.write_text(str(process.pid))

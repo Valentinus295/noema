@@ -196,8 +196,12 @@ class TradingLoop:
         self.logger.info("loop_resumed")
 
     def stop(self) -> None:
-        """Signal the loop to stop after the current tick."""
+        """Signal the loop to stop after the current tick.
+
+        Also unblocks a paused loop so it can exit cleanly.
+        """
         self._stop_event.set()
+        self._pause_event.set()  # Unblock if paused so stop_event is seen
         self.health.state = LoopState.HALTED
         self.logger.info("loop_stopped")
 

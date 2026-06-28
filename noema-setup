@@ -1097,13 +1097,14 @@ if [ "$NEED_WINE" = "true" ]; then
         else
             fail "RPyC bridge (port 18812): NOT LISTENING"
             echo -e "    ${YELLOW}The mt5linux EA must be attached to a chart for the bridge to work.${NC}"
-            echo -e "    ${YELLOW}After MT5 opens:${NC}"
-            echo -e "    ${CYAN}  1. Open Navigator (Ctrl+N in MT5)${NC}"
-            echo -e "    ${CYAN}  2. Expand 'Expert Advisors'${NC}"
-            echo -e "    ${CYAN}  3. Double-click 'mt5linux'${NC}"
-            echo -e "    ${CYAN}  4. Attach to EURUSD chart${NC}"
-            echo -e "    ${CYAN}  5. Check 'Allow Algo Trading' → Click OK${NC}"
-            echo -e "    ${CYAN}  6. Bridge starts automatically on port 18812${NC}"
+            echo -e "    ${YELLOW}IMPORTANT: First run MUST be windowed (not headless) so you can attach the EA.${NC}"
+            echo -e "    ${YELLOW}After attaching once, MT5 remembers it for future headless runs.${NC}"
+            echo -e "    ${CYAN}Steps:${NC}"
+            echo -e "    ${CYAN}  1. Run: python -m noema.scripts.mt5_daemon start --visible${NC}"
+            echo -e "    ${CYAN}  2. In MT5: Navigator (Ctrl+N) → Expert Advisors → double-click mt5linux${NC}"
+            echo -e "    ${CYAN}  3. Attach to EURUSD chart, check 'Allow Algo Trading', click OK${NC}"
+            echo -e "    ${CYAN}  4. Close MT5 — profile is saved${NC}"
+            echo -e "    ${CYAN}  5. Run: noema start — EA auto-loads from saved profile${NC}"
             echo -e "    ${YELLOW}Or run: noema setup-mt5-ea${NC}"
             
             # Auto-retry: wait 30s for user to attach EA
@@ -1180,11 +1181,14 @@ if [ "$NEED_WINE" = "true" ]; then
             set -a; source .env 2>/dev/null; set +a
             echo ""
             echo -e "  → Starting MT5 with window..."
+            # Ensure DISPLAY is set for Wine windowed mode
+            export DISPLAY=":${DISPLAY:-0}"
             activate_venv
             if python3 -m noema.scripts.mt5_daemon start --visible 2>/dev/null; then
-                success "MT5 started with window — Noema will connect when ready"
+                success "MT5 started with window — attach mt5linux EA to EURUSD chart"
+                echo -e "  ${CYAN}In MT5: Navigator → Expert Advisors → mt5linux → attach to EURUSD${NC}"
             else
-                warn "MT5 window start had issues — start manually with wine"
+                warn "MT5 window start had issues — try: DISPLAY=:0 wine terminal64.exe"
             fi
             ;;
         3)
@@ -1476,8 +1480,10 @@ fi
 cd "$NOEMA_ROOT"
 
 # Auto-activate venv if it exists — cross-platform (bin/activate on Unix, Scripts/activate on Windows)
-if [ -f ".venv/bin/activate" ] || [ -f ".venv/Scripts/activate" ]; then
-    activate_venv
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate 2>/dev/null || true
+elif [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate 2>/dev/null || true
 fi
 
 # Run the CLI

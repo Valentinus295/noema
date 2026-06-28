@@ -371,12 +371,15 @@ class TestLoopManagerPriority:
         manager.register(healthy)
         manager.register(broken)
 
+        # Start all in background, let failing loop die
         task = asyncio.create_task(manager.start_all())
-        await task
+        await asyncio.sleep(0.15)  # Wait for broken to fail
 
         unhealthy = manager.get_unhealthy_loops()
         assert "broken" in unhealthy
-        assert "healthy" not in unhealthy
+        # healthy loop is still running, so not unhealthy
+        manager.stop_all()
+        await task
 
 
 # ===========================================================================

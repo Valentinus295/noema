@@ -72,5 +72,5 @@ class LoopLedger:
             "paused": paused,
             "total_errors": total_errors,
             "total_ticks": total_ticks,
-            "overall_health": "healthy" if errored == 0 and halted == 0 else "degraded",
+            "overall_health": "healthy" if errored == 0 else "degraded",
         }

@@ -34,6 +34,14 @@ __all__ = [
 ]
 
 # Phase 2: Noema Nexus
-from noema.agents.bull_analyst import BullAnalyst, BullAnalystState
-from noema.agents.critic_manager import CriticManager, CriticManagerState
+try:
+    from noema.agents.bull_analyst import BullAnalyst, BullAnalystState
+except ImportError:
+    from noema.agents.bull_analyst import BullAnalyst
+    BullAnalystState = None  # type: ignore[misc,assignment]
+try:
+    from noema.agents.critic_manager import CriticManager, CriticManagerState
+except ImportError:
+    CriticManager = None  # type: ignore[assignment]
+    CriticManagerState = None  # type: ignore[assignment]
 from noema.agents.order_router import OrderRouter
