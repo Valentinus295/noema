@@ -19,6 +19,14 @@
 
 set -euo pipefail
 
+# ── Parse flags ────────────────────────────────────────────────
+NO_LAUNCH=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-launch) NO_LAUNCH=true ;;
+    esac
+done
+
 # ── Bootstrap: detect if piped from curl ──────────────────────
 if [[ ! -f "noema-setup" ]] && [[ -t 0 ]]; then
     # Running from a local clone — use current directory
@@ -775,6 +783,10 @@ cat >> .env << FOOTER
 POSTGRES_PASSWORD=${POSTGRES_PW}
 REDIS_PASSWORD=${REDIS_PW}
 GRAFANA_PASSWORD=${GRAFANA_PW}
+
+# ── MT5 Auto-Start (required for `noema start` on Linux) ──
+Noema_MT5_HEADLESS=true
+Noema_MT5_STARTUP_WAIT=120
 FOOTER
 
 success ".env file created with $(wc -l < .env) lines"
@@ -1431,7 +1443,7 @@ if [ "$NEED_WINE" = "true" ]; then
     echo -e "  noema dashboard  → Start dashboard only"
     echo -e "  noema logs       → Tail live logs"
     echo ""
-    echo -e "  ${GREEN}Set Noema_MT5_HEADLESS=true in .env for auto MT5 startup.${NC}"
+    echo -e "  ${GREEN}Noema_MT5_HEADLESS=true is auto-set in .env — MT5 starts automatically.${NC}"
     echo ""
     echo -e "  ${YELLOW}Install as a systemd service for auto-start on boot:${NC}"
     echo -e "  mkdir -p ~/.config/systemd/user"
@@ -1509,39 +1521,48 @@ if curl -s "$DASH_URL" > /dev/null 2>&1; then
     done
     echo ""
 
-    # Strategy 1: Python webbrowser module (cross-platform, most reliable)
+    # Try to open browser — reliable fallback chain
     OPEN_OK=false
-    activate_venv
-    if python3 -c "import webbrowser; webbrowser.open('$DASH_URL')" 2>/dev/null; then
-        success "Dashboard opened → $DASH_URL"
-        OPEN_OK=true
+
+    # Strategy 1: xdg-open (Linux — most reliable, opens in default browser)
+    if [ "$OPEN_OK" != "true" ] && command -v xdg-open &> /dev/null; then
+        xdg-open "$DASH_URL" 2>/dev/null && OPEN_OK=true
+        if [ "$OPEN_OK" = "true" ]; then
+            success "Dashboard opened → $DASH_URL"
+        fi
     fi
 
-    # Strategy 2: Fallback to common browser commands
+    # Strategy 2: Python webbrowser module (cross-platform fallback)
     if [ "$OPEN_OK" != "true" ]; then
-        BROWSER_OPENED=false
-        for browser in xdg-open sensible-browser google-chrome google-chrome-stable chromium-browser chromium brave-browser firefox; do
-            if command -v "$browser" &> /dev/null; then
-                "$browser" "$DASH_URL" 2>/dev/null &
-                BROWSER_OPENED=true
-                break
-            fi
-        done
-        if [ "$BROWSER_OPENED" = "true" ]; then
-            success "Dashboard → $DASH_URL"
+        activate_venv
+        if python3 -c "import webbrowser; webbrowser.open('$DASH_URL')" 2>/dev/null; then
+            success "Dashboard opened → $DASH_URL"
             OPEN_OK=true
         fi
     fi
 
-    # Strategy 3: Display URL prominently if nothing worked
+    # Strategy 3: Other common browser commands
     if [ "$OPEN_OK" != "true" ]; then
-        echo ""
+        for browser in sensible-browser open google-chrome google-chrome-stable chromium-browser chromium brave-browser firefox; do
+            if command -v "$browser" &> /dev/null; then
+                "$browser" "$DASH_URL" 2>/dev/null &
+                success "Dashboard → $DASH_URL"
+                OPEN_OK=true
+                break
+            fi
+        done
+    fi
+
+    # Always print the URL prominently (so user can copy it)
+    echo ""
+    echo -e "  ${BOLD}🌐 Dashboard URL: ${GREEN}${BOLD}$DASH_URL${NC}"
+    echo ""
+
+    # Strategy 4: Extra-visible box if nothing worked
+    if [ "$OPEN_OK" != "true" ]; then
         echo -e "  ${YELLOW}${BOLD}╔══════════════════════════════════════════════╗${NC}"
-        echo -e "  ${YELLOW}${BOLD}║  🌐  Open this URL in your browser:          ║${NC}"
-        echo -e "  ${YELLOW}${BOLD}║                                              ║${NC}"
-        echo -e "  ${GREEN}${BOLD}║  $DASH_URL                      ║${NC}"
-        echo -e "  ${YELLOW}${BOLD}║                                              ║${NC}"
-        echo -e "  ${YELLOW}${BOLD}║  No browser detected — open manually ↑       ║${NC}"
+        echo -e "  ${YELLOW}${BOLD}║  Could not auto-open browser.                ║${NC}"
+        echo -e "  ${YELLOW}${BOLD}║  Copy the URL above into your browser.       ║${NC}"
         echo -e "  ${YELLOW}${BOLD}╚══════════════════════════════════════════════╝${NC}"
         echo ""
     fi
@@ -1572,15 +1593,16 @@ echo -e "  ${CYAN}Your 44-unit BSc Economics & Statistics (MMUST) drives every m
 echo -e "  ${CYAN}LLM (minimax-m3 via NVIDIA NIM) narrates only — zero decision authority.${NC}"
 echo -e "  ${CYAN}Next: run trading on FxPesa-demo, 2+ weeks validation, then live.${NC}"
 
-# ── Launch Trading ────────────────────────────────────────
+# ── Auto-Launch ───────────────────────────────────────────
 echo ""
-echo -e "  ${CYAN}Use ${BOLD}noema start${NC}${CYAN} to launch everything.${NC}"
-echo ""
-read -r -p "  🚀 Launch Noema now? [y/N]: " LAUNCH < /dev/tty
-if [ "${LAUNCH,,}" = "y" ] || [ "${LAUNCH,,}" = "yes" ]; then
+if [ "$NO_LAUNCH" = "true" ]; then
+    echo -e "  ${CYAN}Setup complete. Run ${BOLD}noema start${NC}${CYAN} when ready.${NC}"
     echo ""
-    echo -e "  ${GREEN}Starting Noema...${NC}"
+else
+    echo -e "  ${GREEN}${BOLD}🚀 Launching Noema...${NC}"
     echo ""
     activate_venv
+    # Export env vars so the CLI picks them up
+    set -a; source .env 2>/dev/null; set +a
     exec python -m noema.cli start
 fi
