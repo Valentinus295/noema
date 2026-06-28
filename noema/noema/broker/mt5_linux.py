@@ -406,7 +406,7 @@ class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
                 fix="pip install mt5linux",
             )
             return False
-        except Exception as exc:
+        except (ConnectionError, OSError) as exc:
             logger.error("mt5linux_import_failed", error=str(exc))
             return False
 
@@ -424,7 +424,7 @@ class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
                     ),
                 )
                 return False
-        except Exception as exc:
+        except (ConnectionError, OSError, TimeoutError) as exc:
             logger.error(
                 "mt5_connection_failed",
                 error=str(exc),
@@ -449,7 +449,7 @@ class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
                     currency=info.currency,
                     leverage=info.leverage,
                 )
-        except Exception:
+        except Exception:  # Non-critical — account info is informational only
             logger.warning("mt5_account_info_failed")
 
         self._connected = True
@@ -758,7 +758,7 @@ class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
         # Defense-in-depth: Guardian checks + BrokerGateway checks
         try:
             reject_order_if_exceeds_max_lot(volume, symbol=symbol)
-        except Exception as exc:
+        except (ValueError, RuntimeError) as exc:
             logger.error(
                 "order_rejected_max_lot",
                 symbol=symbol,
@@ -993,7 +993,7 @@ class MT5LinuxBroker(BrokerBase, BrokerHealthAdapter):
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except Exception:
+        except OSError:  # Socket errors (connection refused, timeout, etc.)
             return False
 
     def _tf_map(self, timeframe: str) -> int:

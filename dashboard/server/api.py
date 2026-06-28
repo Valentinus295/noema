@@ -31,15 +31,20 @@ logger = structlog.get_logger(__name__)
 
 # ── Security Configuration ──────────────────────────────────────────
 
-DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
-SKIP_AUTH = os.getenv("DASHBOARD_SKIP_AUTH", "0") == "1" or not DASHBOARD_API_KEY
+DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "") or os.getenv("NOEMA_SECRET_KEY", "")
+SKIP_AUTH = os.getenv("DASHBOARD_SKIP_AUTH", "0") == "1"
 
 if not DASHBOARD_API_KEY:
+    import secrets as _secrets
+    DASHBOARD_API_KEY = _secrets.token_urlsafe(32)
     logger.warning(
-        "dashboard_no_api_key",
-        message="DASHBOARD_API_KEY not set — auth is DISABLED. "
-                "Set in production. See DASHBOARD_SECURITY.md.",
+        "dashboard_auto_generated_key",
+        message="DASHBOARD_API_KEY and NOEMA_SECRET_KEY both unset — auto-generated a temporary key. "
+                "Set DASHBOARD_API_KEY in .env for persistent auth.",
     )
+    print(f"\n  🔑 Dashboard API Key (auto-generated): {DASHBOARD_API_KEY}")
+    print(f"     Use this key to access the dashboard.")
+    print(f"     Or set DASHBOARD_API_KEY in .env for persistent auth.\n")
 
 
 def verify_api_key(request: Request) -> bool:

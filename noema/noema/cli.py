@@ -987,6 +987,134 @@ def cmd_logs(args: argparse.Namespace) -> None:
 # ── Main ──────────────────────────────────────────────────────────
 
 
+def cmd_update(args: argparse.Namespace) -> None:
+    """Pull latest changes and update all dependencies."""
+    print(f"🧠 Noema v{VERSION} — Update")
+    print()
+
+    # 1. Git pull
+    _print("📦", "Pulling latest changes...")
+    result = subprocess.run(
+        ["git", "pull", "--rebase", "--autostash"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"   ⚠️  git pull failed: {result.stderr.strip()}")
+        print("   Resolve conflicts manually, then run noema update again.")
+        sys.exit(1)
+    else:
+        output = result.stdout.strip()
+        if "Already up to date" in output or "Already up-to-date" in output:
+            _print("✅", "Already up to date.")
+        else:
+            _print("✅", "Updated to latest.")
+            for line in output.splitlines()[-3:]:
+                print(f"   {line}")
+    print()
+
+    # 2. Python dependencies
+    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python"
+    uv_bin = PROJECT_ROOT / ".venv" / "bin" / "uv"
+
+    if uv_bin.exists():
+        _print("🐍", "Updating Python dependencies (uv sync)...")
+        r = subprocess.run(
+            [str(uv_bin), "sync"],
+            cwd=PROJECT_ROOT,
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            _print("✅", "Python dependencies updated.")
+        else:
+            print(f"   ⚠️  uv sync failed: {r.stderr.strip()}")
+    elif venv_python.exists():
+        _print("🐍", "Updating Python dependencies (pip)...")
+        r = subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "-e", ".", "--quiet"],
+            cwd=PROJECT_ROOT,
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            _print("✅", "Python dependencies updated.")
+        else:
+            print(f"   ⚠️  pip install failed: {r.stderr.strip()}")
+    else:
+        _print("⏭️", "No venv found — skipping Python deps.")
+    print()
+
+    # 3. Dashboard npm dependencies
+    dashboard_dir = PROJECT_ROOT / "dashboard"
+    if (dashboard_dir / "package.json").exists():
+        npm_tool = _find_npm_or_npx()
+        if npm_tool:
+            _print("📊", "Updating dashboard dependencies...")
+            if npm_tool == "npm":
+                r = subprocess.run(
+                    ["npm", "install"],
+                    cwd=dashboard_dir, capture_output=True, text=True,
+                )
+            else:
+                r = subprocess.run(
+                    ["npx", "npm", "install"],
+                    cwd=dashboard_dir, capture_output=True, text=True,
+                )
+            if r.returncode == 0:
+                _print("✅", "Dashboard dependencies updated.")
+            else:
+                print(f"   ⚠️  npm install failed: {r.stderr.strip()}")
+        else:
+            _print("⏭️", "npm not found — skipping dashboard deps.")
+    print()
+
+    # 4. Rust crates
+    rust_dir = PROJECT_ROOT / "rust"
+    if (rust_dir / "Cargo.toml").exists():
+        cargo_bin = Path.home() / ".cargo" / "bin" / "cargo"
+        if not cargo_bin.exists():
+            cargo_bin = _which("cargo")
+        if cargo_bin:
+            _print("🦀", "Updating Rust crates...")
+            r = subprocess.run(
+                [str(cargo_bin), "update"],
+                cwd=rust_dir, capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                _print("✅", "Rust dependencies updated.")
+            else:
+                print(f"   ⚠️  cargo update failed: {r.stderr.strip()}")
+        else:
+            _print("⏭️", "cargo not found — skipping Rust deps.")
+    print()
+
+    # 5. Docker services
+    compose_file = PROJECT_ROOT / "docker-compose.yml"
+    if compose_file.exists() and _which("docker"):
+        _print("🐳", "Pulling latest Docker images...")
+        r = subprocess.run(
+            ["docker", "compose", "pull", "--quiet"],
+            cwd=PROJECT_ROOT, capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            _print("✅", "Docker images updated.")
+        else:
+            print(f"   ⚠️  docker pull skipped: {r.stderr.strip()}")
+    print()
+
+    _print("✅", "Update complete! Run 'noema start' to launch.")
+    print()
+
+
+def _which(name: str) -> Optional[str]:
+    """Find executable in PATH."""
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        p = os.path.join(d, name)
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
 def main() -> None:
     """Noema CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -1015,6 +1143,10 @@ def main() -> None:
     # start
     p_start = sub.add_parser("start", help="Start everything: MT5, dashboard, trading")
     p_start.set_defaults(func=cmd_start)
+
+    # update
+    p_update = sub.add_parser("update", help="Pull latest and update all dependencies")
+    p_update.set_defaults(func=cmd_update)
 
     # stop
     p_stop = sub.add_parser("stop", help="Graceful shutdown")

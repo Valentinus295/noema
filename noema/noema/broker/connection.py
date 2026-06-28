@@ -112,7 +112,7 @@ class MT5ConnectionManager:
                  "type": p.type, "pnl": p.pnl}
                 for p in positions
             ]
-        except Exception:
+        except Exception:  # Best-effort snapshot — don't fail disconnect on position fetch
             self.state.positions_before_disconnect = []
 
         disconnect_dur = self.get_disconnect_duration()
@@ -259,7 +259,7 @@ class MT5ConnectionManager:
                 if check_fn():
                     logger.info("reconnect_check_passed")
                     return True
-            except Exception as exc:
+            except (ConnectionError, OSError) as exc:
                 logger.warning("reconnect_check_failed", error=str(exc))
         logger.error("reconnect_max_attempts_exhausted")
         return False
@@ -277,7 +277,7 @@ class MT5ConnectionManager:
             if self.data_stale_callback:
                 try:
                     self.data_stale_callback()
-                except Exception:
+                except Exception:  # External callback — don't let failures propagate
                     pass
 
     def record_success(self) -> None:
@@ -355,6 +355,6 @@ class MT5ConnectionManager:
         if self.telegram_callback:
             try:
                 await self.telegram_callback(message)
-            except Exception:
+            except Exception:  # External callback — don't let failures propagate
                 pass
         logger.info("connection_alert", message=message)

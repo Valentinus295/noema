@@ -158,7 +158,7 @@ class MultiBrokerGateway:
                 else:
                     self._status[name].health = BrokerHealth.DISCONNECTED
                     self._logger.error("broker_init_failed", name=name)
-            except Exception as e:
+            except (ConnectionError, OSError) as e:
                 self._status[name].health = BrokerHealth.DISCONNECTED
                 self._logger.error("broker_init_error", name=name, error=str(e))
 
@@ -177,7 +177,7 @@ class MultiBrokerGateway:
                 broker.shutdown()
                 self._status[name].connected = False
                 self._status[name].health = BrokerHealth.DISCONNECTED
-            except Exception:
+            except Exception:  # Shutdown should never raise — swallow all errors
                 pass
         self._initialized = False
         self._logger.info("gateway_shutdown")
@@ -198,7 +198,7 @@ class MultiBrokerGateway:
                 await self._check_all_brokers()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except (ConnectionError, OSError, asyncio.TimeoutError) as e:
                 self._logger.error("health_loop_error", error=str(e))
             await asyncio.sleep(self._health_check_interval)
 

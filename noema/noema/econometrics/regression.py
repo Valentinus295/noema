@@ -575,7 +575,7 @@ def residual_diagnostics(
     - Normality (Jarque-Bera)
     - Heteroskedasticity (Breusch-Pagan, White)
     - Autocorrelation (Durbin-Watson, Ljung-Box)
-    - Outliers (\(\pm 3\sigma\))
+    - Outliers (\\(\\pm 3\\sigma\\))
 
     Args:
         residuals: Residual array.

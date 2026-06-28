@@ -733,6 +733,13 @@ prompt_secret \
     "$DASH_KEY" \
     "→ Auto-generated random key. Use this to access the monitoring dashboard."
 
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || echo "")
+prompt_secret \
+    "Secret Key (API auth + shutdown endpoint)" \
+    "NOEMA_SECRET_KEY" \
+    "$SECRET_KEY" \
+    "→ Auto-generated. Used for health check auth and graceful shutdown."
+
 echo ""
 echo -e "  ${BOLD}${CYAN}── Optional: Telegram Alerts ──${NC}"
 

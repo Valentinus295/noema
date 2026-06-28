@@ -144,7 +144,7 @@ class ShutdownManager:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(str(os.getpid()))
             logger.debug("pid_file_written", path=str(path), pid=os.getpid())
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.warning("pid_file_write_failed", path=self.config.pid_file_path, error=str(e))
 
     def _remove_pid_file(self) -> None:
@@ -156,7 +156,7 @@ class ShutdownManager:
             if path.exists():
                 path.unlink()
                 logger.debug("pid_file_removed", path=str(path))
-        except Exception as e:
+        except (OSError, FileNotFoundError) as e:
             logger.warning("pid_file_remove_failed", path=self.config.pid_file_path, error=str(e))
 
     # ── Signal Handling ──────────────────────────────────────────────
@@ -181,7 +181,7 @@ class ShutdownManager:
             signal.signal(signal.SIGTERM, _handle_signal)
             signal.signal(signal.SIGINT, _handle_signal)
             logger.info("shutdown_signals_registered", signals=["SIGTERM", "SIGINT"])
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error("shutdown_signal_registration_failed", error=str(e))
 
     # ── Wait for Shutdown ────────────────────────────────────────────
@@ -262,7 +262,7 @@ class ShutdownManager:
             try:
                 self._orch._running = False
                 logger.info("orchestrator_loops_halted")
-            except Exception as e:
+            except (AttributeError, RuntimeError) as e:
                 self.state.errors.append(f"halt_orchestrator: {e}")
                 logger.error("halt_orchestrator_failed", error=str(e))
 
@@ -461,7 +461,13 @@ class ShutdownManager:
         )
 
     async def _phase_flush_and_clean(self) -> None:
-        """Flush logs, metrics, and close connections."""
+        """Flush logs, metrics, and close connections.
+
+        NOTE: All cleanup blocks use broad `except Exception` intentionally.
+        During shutdown, every cleanup step must be attempted even if
+        prior steps fail. Individual failures are logged but never
+        propagate — shutdown must complete regardless.
+        """
         logger.info("shutdown_phase4_flushing")
 
         # ── Flush NIM client (LLM API) ─────
