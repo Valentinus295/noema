@@ -8,7 +8,6 @@
 #   docker compose up -d          # auto-loads this override
 #   docker compose up -d redis    # start only core services (skip postgres)
 
-version: "3.9"
 
 services:
   # ── PostgreSQL 16 — Trade Journal (opt-in) ─────────────────

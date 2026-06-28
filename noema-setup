@@ -598,6 +598,7 @@ if command -v uv &> /dev/null; then
     uv venv .venv 2>/dev/null || true
     activate_venv
     uv sync
+    uv pip install -e ".[dev]"  # Install the package itself (entry points)
     success "Python dependencies installed via uv"
 else
     PKG_MGR="pip"
