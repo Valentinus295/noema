@@ -1,0 +1,209 @@
+# Noema Trading Platform — Prometheus Alerting Rules
+#
+# These rules define alerts for critical trading system conditions.
+# Deploy to Prometheus via rule_files configuration or
+# PrometheusRule CRD in Kubernetes.
+#
+# Severity levels:
+#   - critical: Immediate human attention required (PagerDuty)
+#   - warning: Review within 15 minutes (Slack)
+#   - info: Awareness only (Slack #alerts)
+
+groups:
+  - name: noema_kill_switch
+    interval: 10s
+    rules:
+      # ── Kill-Switch Activation (IMMEDIATE ALERT) ──
+      - alert: NoemaKillSwitchActivated
+        expr: noema_kill_switch_active == 1
+        for: 0s
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Kill-switch activated — trading halted"
+          description: >-
+            A Guardian kill-switch has been activated.
+            Trading is halted until the condition is resolved.
+            Check Guardian audit log for the specific switch that fired.
+          runbook: "https://internal.wiki/runbooks/noema-killswitch"
+
+  - name: noema_broker
+    interval: 15s
+    rules:
+      # ── Broker Disconnect > 30s ──
+      - alert: NoemaBrokerDisconnected
+        expr: noema_broker_connected == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Broker disconnected for > 30 seconds"
+          description: >-
+            The MT5 broker connection has been down for over 30 seconds.
+            Guardian should have halted trading automatically via the
+            data_stale kill-switch. Verify reconnection attempts.
+          runbook: "https://internal.wiki/runbooks/noema-broker-disconnect"
+
+      # ── Broker Latency High ──
+      - alert: NoemaBrokerLatencyHigh
+        expr: noema_broker_latency_ms > 500
+        for: 2m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Broker latency > 500ms for 2 minutes"
+          description: >-
+            Broker API latency is consistently high ({{ $value }}ms).
+            This may indicate network issues or broker overload.
+            Slippage risk is elevated.
+
+  - name: noema_errors
+    interval: 30s
+    rules:
+      # ── Error Rate > 5% in 5min window ──
+      - alert: NoemaHighErrorRate
+        expr: |
+          (
+            sum(rate(noema_pipeline_errors_total[5m]))
+            /
+            sum(rate(noema_pipeline_cycles_total[5m]))
+          ) > 0.05
+        for: 1m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Pipeline error rate > 5% over 5 minutes"
+          description: >-
+            The trading pipeline is experiencing a high error rate
+            ({{ $value | humanizePercentage }}). Check agent logs for
+            root cause. Possible causes: LLM API failures, broker
+            errors, data quality issues.
+          runbook: "https://internal.wiki/runbooks/noema-errors"
+
+      # ── LLM Errors > 3 in 1 hour ──
+      - alert: NoemaLLMErrorRate
+        expr: sum(increase(noema_llm_errors_total[1h])) > 3
+        for: 0s
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "More than 3 LLM errors in the last hour"
+          description: >-
+            LLM (NIM) calls are failing frequently.
+            {{ $value }} errors in the last hour.
+            Agents will fall back to deterministic logic.
+            Check NIM API status and rate limits.
+          runbook: "https://internal.wiki/runbooks/noema-llm-errors"
+
+  - name: noema_risk
+    interval: 30s
+    rules:
+      # ── Drawdown > 10% ──
+      - alert: NoemaDrawdownHigh
+        expr: noema_drawdown_pct > 10
+        for: 0s
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Account drawdown exceeds 10%"
+          description: >-
+            Current drawdown is {{ $value }}%, exceeding the 10% threshold.
+            Guardian should have triggered the max_drawdown kill-switch.
+            Verify all positions are flat or being managed.
+          runbook: "https://internal.wiki/runbooks/noema-drawdown"
+
+      # ── Drawdown Warning (approaching limit) ──
+      - alert: NoemaDrawdownWarning
+        expr: noema_drawdown_pct > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Account drawdown > 5% for 5 minutes"
+          description: >-
+            Drawdown is at {{ $value }}% and has been elevated for 5+ minutes.
+            Monitor closely — 10% triggers a kill-switch halt.
+
+      # ── Margin Level Low ──
+      - alert: NoemaMarginLevelLow
+        expr: noema_margin_level_pct < 300
+        for: 1m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Margin level below 300%"
+          description: >-
+            Margin level is at {{ $value }}%. The kill-switch triggers at 200%.
+            Consider reducing position sizes.
+
+  - name: noema_guardian
+    interval: 10s
+    rules:
+      # ── Guardian Halt Triggered ──
+      - alert: NoemaGuardianHalt
+        expr: noema_guardian_trading_halted == 1
+        for: 0s
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Guardian has halted all trading"
+          description: >-
+            The Guardian agent has halted trading.
+            Reason: {{ $labels.reason | default("unknown") }}.
+            Check the Guardian audit log for details.
+            Manual intervention may be required to resume trading.
+          runbook: "https://internal.wiki/runbooks/noema-guardian-halt"
+
+      # ── Guardian Heartbeat Stale ──
+      - alert: NoemaGuardianHeartbeatStale
+        expr: noema_guardian_heartbeat_ok == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Guardian heartbeat is stale"
+          description: >-
+            The Guardian agent has not sent a heartbeat for over 30 seconds.
+            The Guardian process may have crashed. Trading safety
+            guarantees cannot be verified.
+          runbook: "https://internal.wiki/runbooks/noema-guardian-down"
+
+  - name: noema_pipeline
+    interval: 60s
+    rules:
+      # ── Pipeline Stalled ──
+      - alert: NoemaPipelineStalled
+        expr: time() - noema_pipeline_last_cycle_timestamp > 300
+        for: 2m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "No pipeline cycle completed in 5 minutes"
+          description: >-
+            The trading pipeline has not completed a cycle in over 5 minutes.
+            The orchestrator may be stuck or crashed. Check process health.
+
+      # ── No Trades for Extended Period ──
+      - alert: NoemaNoTradesLongPeriod
+        expr: increase(noema_trade_decisions_total{decision!="NO_TRADE"}[24h]) == 0
+        for: 0s
+        labels:
+          severity: info
+          team: trading
+        annotations:
+          summary: "No trades executed in 24 hours"
+          description: >-
+            The system has not executed any trades in the last 24 hours.
+            This may be intentional (no valid setups) or indicate a problem.
+            Review pipeline logs and market conditions.
