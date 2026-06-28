@@ -58,7 +58,7 @@ class GuardianState:
     """Mutable state tracked by the Guardian across cycles."""
     daily_pnl: float = 0.0
     weekly_pnl: float = 0.0
-    daily_loss_limit: float = 3.0
+    daily_loss_limit_pct: float = 3.0
     weekly_loss_limit: float = 8.0
     last_heartbeat: datetime | None = None
     heartbeat_timeout: int = 30
@@ -84,6 +84,7 @@ class GuardianState:
     llm_errors: int = 0
     max_llm_errors: int = 10
     audit_log: list[dict[str, Any]] = field(default_factory=list)
+    _audit_log_maxlen: int = field(default=500, repr=False)
     # ── Phase 1: New kill-switch state ──
     # Kill-switch #15: Actor broken (silenced agents)
     actor_rejection_counts: dict[str, int] = field(default_factory=dict)
@@ -99,7 +100,7 @@ class GuardianState:
 
 
 def check_daily_loss(state: GuardianState) -> bool:
-    return abs(state.daily_pnl) >= state.daily_loss_limit
+    return abs(state.daily_pnl) >= state.daily_loss_limit_pct
 
 
 def check_weekly_loss(state: GuardianState) -> bool:
@@ -242,7 +243,7 @@ def update_actor_rejection(state: GuardianState, agent_name: str, rejected: bool
             consecutive_rejections=count,
             reason="kill-switch #15: actor_broken",
         )
-        state.audit_log.append({
+        _audit_log_append(state, {
             "event": "actor_silenced",
             "agent": agent_name,
             "consecutive_rejections": count,
@@ -265,7 +266,7 @@ def set_critic_team_down(state: GuardianState, down: bool = True, reason: str = 
             "guardian_critic_team_down",
             reason=reason,
         )
-        state.audit_log.append({
+        _audit_log_append(state, {
             "event": "critic_team_down",
             "reason": reason,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -283,13 +284,20 @@ def set_learning_frozen(state: GuardianState, frozen: bool = True, drawdown_pct:
             reason="kill-switch #16: learning_under_drawdown",
             drawdown_pct=round(drawdown_pct, 4),
         )
-        state.audit_log.append({
+        _audit_log_append(state, {
             "event": "learning_frozen",
             "drawdown_pct": drawdown_pct,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     elif not frozen:
         state.learning_frozen = False
+
+
+def _audit_log_append(state: GuardianState, entry: dict[str, Any]) -> None:
+    """Append to audit_log with bounded size (prevents memory leak)."""
+    state.audit_log.append(entry)
+    if len(state.audit_log) > state._audit_log_maxlen:
+        del state.audit_log[:-state._audit_log_maxlen]
 
 
 def check_win_rate_floor(state: GuardianState) -> bool:
@@ -342,6 +350,10 @@ class GuardianAgent(DeterministicAgent):
         super().__init__(config=config)
         self._guardian_state = guardian_state
         self._halt_lock = threading.Lock()
+        # Async lock for GuardianState mutations (prevents races between
+        # concurrent async code paths: check_all, pre_trade_check,
+        # record_trade_result, update_account_state)
+        self._state_lock = asyncio.Lock()
         # ── Phase 1.5: Blackout watchdog tracking ──
         self._blackout_activated_at: dict[str, datetime] = {}  # pair → activation time
         self._max_blackout_minutes: int = 60  # Hard timeout (COO condition #1)
@@ -496,9 +508,16 @@ class GuardianAgent(DeterministicAgent):
 
         Returns list of triggered kill-switches. Empty list = all clear.
         """
+        async with self._state_lock:
+            return await self._check_all_unlocked(account_state)
+
+    async def _check_all_unlocked(
+        self, account_state: Optional[dict[str, float]] = None
+    ) -> list[dict[str, Any]]:
+        """Internal implementation of check_all — must hold _state_lock."""
         # Refresh state if caller provides current account data
         if account_state:
-            self.update_account_state(
+            self._update_account_state_unlocked(
                 balance=account_state.get("balance", 0.0),
                 equity=account_state.get("equity", 0.0),
                 margin_level=account_state.get("margin_level", 0.0),
@@ -513,7 +532,7 @@ class GuardianAgent(DeterministicAgent):
         checks = [
             ("daily_loss", check_daily_loss(state), {
                 "value": f"{state.daily_pnl:.2f}%",
-                "threshold": f"{state.daily_loss_limit}%"
+                "threshold": f"{state.daily_loss_limit_pct}%"
             }),
             ("weekly_loss", check_weekly_loss(state), {
                 "value": f"{state.weekly_pnl:.2f}%",
@@ -591,7 +610,7 @@ class GuardianAgent(DeterministicAgent):
                     switch=switch_id,
                     **details,
                 )
-                state.audit_log.append({"event": "killswitch_fired", **entry})
+                self._append_audit_log(state, {"event": "killswitch_fired", **entry})
 
         if triggered:
             self._halt_trading("; ".join(t["id"] for t in triggered))
@@ -611,6 +630,13 @@ class GuardianAgent(DeterministicAgent):
         Called BEFORE every order placement.
         Returns (approved, reason).
         """
+        async with self._state_lock:
+            return await self._pre_trade_check_unlocked(pair, lot_size, current_pnl)
+
+    async def _pre_trade_check_unlocked(
+        self, pair: str, lot_size: float, current_pnl: float
+    ) -> tuple[bool, str]:
+        """Internal pre-trade check — must hold _state_lock."""
         state = self._get_state()
 
         # Update PnL snapshot
@@ -700,7 +726,53 @@ class GuardianAgent(DeterministicAgent):
         weekly_pnl: float = 0.0,
         spread: float = 0.0,
     ) -> None:
-        """Update account-level state after each trade or account check."""
+        """Update account-level state after each trade or account check.
+
+        Thread-safe: acquires _state_lock if an event loop is running,
+        otherwise updates directly (for synchronous callers at init time).
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # We're in an async context — schedule the update under the lock
+            loop.create_task(
+                self._update_account_state_locked(
+                    balance=balance,
+                    equity=equity,
+                    margin_level=margin_level,
+                    daily_pnl=daily_pnl,
+                    weekly_pnl=weekly_pnl,
+                    spread=spread,
+                )
+            )
+        else:
+            # Synchronous context (e.g. __init__) — update directly
+            self._update_account_state_unlocked(
+                balance=balance,
+                equity=equity,
+                margin_level=margin_level,
+                daily_pnl=daily_pnl,
+                weekly_pnl=weekly_pnl,
+                spread=spread,
+            )
+
+    async def _update_account_state_locked(self, **kwargs: Any) -> None:
+        async with self._state_lock:
+            self._update_account_state_unlocked(**kwargs)
+
+    def _update_account_state_unlocked(
+        self,
+        balance: float = 0.0,
+        equity: float = 0.0,
+        margin_level: float = 0.0,
+        daily_pnl: float = 0.0,
+        weekly_pnl: float = 0.0,
+        spread: float = 0.0,
+    ) -> None:
+        """Update account state — must hold _state_lock or be in sync context."""
         state = self._get_state()
         if balance:
             state.account_balance = balance
@@ -718,7 +790,26 @@ class GuardianAgent(DeterministicAgent):
             state.spread_current = spread
 
     def record_trade_result(self, won: bool, pnl: float = 0.0) -> None:
-        """Record the result of a closed trade."""
+        """Record the result of a closed trade.
+
+        Thread-safe: acquires _state_lock if an event loop is running.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            loop.create_task(self._record_trade_result_locked(won, pnl))
+        else:
+            self._record_trade_result_unlocked(won, pnl)
+
+    async def _record_trade_result_locked(self, won: bool, pnl: float = 0.0) -> None:
+        async with self._state_lock:
+            self._record_trade_result_unlocked(won, pnl)
+
+    def _record_trade_result_unlocked(self, won: bool, pnl: float = 0.0) -> None:
+        """Record trade result — must hold _state_lock or be in sync context."""
         state = self._get_state()
         state.total_trades += 1
         if won:
@@ -738,7 +829,7 @@ class GuardianAgent(DeterministicAgent):
             total=state.total_trades,
             win_rate=f"{state.winning_trades / state.total_trades:.2%}",
         )
-        state.audit_log.append({
+        self._append_audit_log(state, {
             "event": "trade_result",
             "won": won,
             "pnl": pnl,
@@ -755,6 +846,13 @@ class GuardianAgent(DeterministicAgent):
         if not hasattr(self, '_guardian_state') or self._guardian_state is None:
             raise RuntimeError("GuardianAgent._guardian_state not set. Pass GuardianState to __init__.")
         return self._guardian_state
+
+    @staticmethod
+    def _append_audit_log(state: GuardianState, entry: dict[str, Any]) -> None:
+        """Append to audit_log with bounded size (prevents memory leak)."""
+        state.audit_log.append(entry)
+        if len(state.audit_log) > state._audit_log_maxlen:
+            del state.audit_log[:-state._audit_log_maxlen]
 
     def _halt_trading(self, reason: str) -> None:
         """Thread-safe halt of all trading with a given reason.
@@ -814,7 +912,7 @@ class GuardianAgent(DeterministicAgent):
             "activated_at": now.isoformat(),
             "watchdog_timeout_minutes": self._max_blackout_minutes,
         }
-        state.audit_log.append(audit_entry)
+        self._append_audit_log(state, audit_entry)
 
         logger.warning(
             "guardian_news_blackout_activated",
@@ -862,7 +960,7 @@ class GuardianAgent(DeterministicAgent):
             "deactivated_at": now.isoformat(),
             "duration_minutes": round(duration_minutes, 1),
         }
-        state.audit_log.append(audit_entry)
+        self._append_audit_log(state, audit_entry)
 
         logger.info(
             "guardian_news_blackout_deactivated",
